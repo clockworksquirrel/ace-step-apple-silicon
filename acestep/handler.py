@@ -1124,6 +1124,10 @@ class AceStepHandler:
         
         return audio
     
+    def _create_fallback_vocal_languages(self, batch_size: int) -> List[str]:
+        """Create default vocal language list for batch."""
+        return ["en"] * batch_size
+
     def _normalize_audio_code_hints(self, audio_code_hints: Optional[Union[str, List[str]]], batch_size: int) -> List[Optional[str]]:
         """Normalize audio_code_hints to list of correct length."""
         if audio_code_hints is None:
