@@ -230,4 +230,10 @@ issues/
 PortableGit/
 proxy_config.txt
 gradio_outputs/
-acestep/third_parts/vllm/
+acestep/third_parts/vllm/.env
+
+# Internal change logs (not for publishing)
+AUDIT_REPORT.md
+PHASE*_CHANGES.md
+DJ_CHAT_CHANGES.md
+README_APPLE_SILICON.md

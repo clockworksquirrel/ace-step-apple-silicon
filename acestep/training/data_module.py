@@ -15,6 +15,8 @@ import torch
 import torchaudio
 from torch.utils.data import Dataset, DataLoader
 
+from acestep import device_utils
+
 try:
     from lightning.pytorch import LightningDataModule
     LIGHTNING_AVAILABLE = True
@@ -184,6 +186,7 @@ class PreprocessedDataModule(LightningDataModule if LIGHTNING_AVAILABLE else obj
             batch_size: Training batch size
             num_workers: Number of data loading workers
             pin_memory: Whether to pin memory for faster GPU transfer
+                       (automatically disabled on non-CUDA devices)
             val_split: Fraction of data for validation (0 = no validation)
         """
         if LIGHTNING_AVAILABLE:
@@ -192,7 +195,9 @@ class PreprocessedDataModule(LightningDataModule if LIGHTNING_AVAILABLE else obj
         self.tensor_dir = tensor_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.pin_memory = pin_memory
+        # pin_memory is only useful for CUDA; disable for MPS/CPU
+        current_device = device_utils.get_device_type()
+        self.pin_memory = pin_memory and (current_device == "cuda")
         self.val_split = val_split
         
         self.train_dataset = None
@@ -396,7 +401,9 @@ class AceStepDataModule(LightningDataModule if LIGHTNING_AVAILABLE else object):
         self.dit_handler = dit_handler
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.pin_memory = pin_memory
+        # pin_memory is only useful for CUDA; disable for MPS/CPU
+        current_device = device_utils.get_device_type()
+        self.pin_memory = pin_memory and (current_device == "cuda")
         self.max_duration = max_duration
         self.val_split = val_split
         

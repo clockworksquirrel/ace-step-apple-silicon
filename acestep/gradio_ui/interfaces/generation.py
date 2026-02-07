@@ -107,7 +107,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                 # Set device value from init_params if pre-initialized
                 device_value = init_params.get('device', 'auto') if service_pre_initialized else 'auto'
                 device = gr.Dropdown(
-                    choices=["auto", "cuda", "xpu", "cpu"],
+                    choices=["auto", "cuda", "xpu", "mps", "cpu"],
                     value=device_value,
                     label=t("service.device_label"),
                     info=t("service.device_info")

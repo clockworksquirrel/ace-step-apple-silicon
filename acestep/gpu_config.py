@@ -147,6 +147,17 @@ def get_gpu_memory_gb() -> float:
             total_memory = torch.xpu.get_device_properties(0).total_memory
             memory_gb = total_memory / (1024**3)  # Convert bytes to GB
             return memory_gb
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            # Apple Silicon unified memory — report total system RAM * 0.75
+            import subprocess
+            result = subprocess.run(['/usr/sbin/sysctl', '-n', 'hw.memsize'], capture_output=True, text=True)
+            if result.returncode != 0:
+                # Fallback: try os.sysconf
+                import os as _os
+                total_bytes = _os.sysconf('SC_PAGE_SIZE') * _os.sysconf('SC_PHYS_PAGES')
+            else:
+                total_bytes = int(result.stdout.strip())
+            return total_bytes / (1024**3) * 0.75  # Conservative estimate
         else:
             return 0
     except Exception as e:

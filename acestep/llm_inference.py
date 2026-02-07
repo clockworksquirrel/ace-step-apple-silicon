@@ -22,6 +22,8 @@ from transformers.generation.logits_process import (
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep import device_utils
+from acestep import mlx_lm_backend
 
 
 class LLMHandler:
@@ -334,21 +336,26 @@ class LLMHandler:
         """
         try:
             if device == "auto":
-                if torch.cuda.is_available():
-                    device = "cuda"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    device = "xpu"
-                else:
-                    device = "cpu"
+                device = device_utils.get_device_type()
 
             self.device = device
             self.offload_to_cpu = offload_to_cpu
             
-            # Set dtype based on device: bfloat16 for cuda, float32 for cpu
+            # Set dtype based on device: bfloat16 for cuda/xpu/mps, float32 for cpu
             if dtype is None:
-                self.dtype = torch.bfloat16 if device in ["cuda", "xpu"] else torch.float32
+                self.dtype = device_utils.get_dtype(device)
             else:
                 self.dtype = dtype
+            
+            # Force appropriate backend on MPS (nano-vllm is CUDA-only)
+            if device == "mps" and backend == "vllm":
+                if mlx_lm_backend.is_available():
+                    logger.info("nano-vllm requires CUDA. MLX-LM available — using MLX backend on MPS for Metal-accelerated inference")
+                    backend = "mlx"
+                else:
+                    reason = mlx_lm_backend.get_import_error() or "mlx-lm not installed"
+                    logger.info(f"nano-vllm requires CUDA. MLX-LM not available ({reason}) — falling back to PyTorch backend on MPS")
+                    backend = "pt"
 
             # If lm_model_path is None, use default
             if lm_model_path is None:
@@ -399,6 +406,16 @@ class LLMHandler:
                             return status_msg, False
                         status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
                 # If vllm initialization succeeded, self.llm_initialized should already be True
+            elif backend == "mlx":
+                # Use MLX-LM backend (Apple Silicon Metal-accelerated)
+                success, status_msg = self._initialize_5hz_lm_mlx(full_lm_model_path)
+                if not success:
+                    # MLX initialization failed, fall back to PyTorch
+                    logger.warning(f"MLX-LM initialization failed, falling back to PyTorch backend: {status_msg}")
+                    success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
+                    if not success:
+                        return status_msg, False
+                    status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback from MLX)\nModel: {full_lm_model_path}\nBackend: PyTorch"
             else:
                 # Use PyTorch backend (pt)
                 success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
@@ -460,6 +477,165 @@ class LLMHandler:
         except Exception as e:
             self.llm_initialized = False
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+
+    def _initialize_5hz_lm_mlx(self, model_path: str, quantize: Optional[int] = None) -> Tuple[bool, str]:
+        """
+        Initialize 5Hz LM model using the MLX-LM backend for Apple Silicon.
+        
+        MLX-LM provides Metal-accelerated inference with KV caching, significantly
+        faster than the PyTorch backend on MPS.
+        
+        Args:
+            model_path: Full path to the model directory
+            quantize: Optional quantization bits (4 or 8). None = no quantization.
+            
+        Returns:
+            (success: bool, status_message: str)
+        """
+        if not mlx_lm_backend.is_available():
+            err = mlx_lm_backend.get_import_error() or "mlx-lm not installed"
+            return False, f"❌ MLX-LM not available: {err}"
+        
+        try:
+            backend = mlx_lm_backend.MLXLMBackend()
+            success, status_msg = backend.load_model(model_path, quantize=quantize)
+            
+            if not success:
+                return False, status_msg
+            
+            # Store the MLX backend instance as self.llm (replaces the model reference)
+            self.llm = backend
+            self.llm_backend = "mlx"
+            self.llm_initialized = True
+            self.max_model_len = 4096  # Default; MLX handles context length via KV cache
+            
+            logger.info(f"5Hz LM initialized successfully using MLX-LM backend")
+            return True, status_msg
+            
+        except Exception as e:
+            import traceback
+            return False, f"❌ Error initializing MLX-LM backend: {e}\n\n{traceback.format_exc()}"
+
+    def _run_mlx(
+        self,
+        formatted_prompts: Union[str, List[str]],
+        temperature: float,
+        cfg_scale: float,
+        negative_prompt: str,
+        top_k: Optional[int],
+        top_p: Optional[float],
+        repetition_penalty: float,
+        use_constrained_decoding: bool = True,
+        constrained_decoding_debug: bool = False,
+        metadata_temperature: Optional[float] = None,
+        codes_temperature: Optional[float] = None,
+        target_duration: Optional[float] = None,
+        user_metadata: Optional[Dict[str, Optional[str]]] = None,
+        stop_at_reasoning: bool = False,
+        skip_genres: bool = True,
+        skip_caption: bool = False,
+        skip_language: bool = False,
+        generation_phase: str = "cot",
+        caption: str = "",
+        lyrics: str = "",
+        cot_text: str = "",
+        seeds: Optional[List[int]] = None,
+    ) -> Union[str, List[str]]:
+        """
+        Unified MLX-LM generation function supporting both single and batch modes.
+        
+        Matches the interface of _run_vllm() and _run_pt() for seamless dispatch.
+        Accepts either a single formatted prompt (str) or a list of formatted prompts (List[str]).
+        Returns a single string for single mode, or a list of strings for batch mode.
+        """
+        # Determine if batch mode
+        formatted_prompt_list, is_batch = self._normalize_batch_input(formatted_prompts)
+        batch_size = len(formatted_prompt_list)
+        
+        # Calculate max_tokens based on target_duration if specified
+        if target_duration is not None and target_duration > 0:
+            effective_duration = max(10, min(600, target_duration))
+            max_tokens = int(effective_duration * 5) + 500
+            max_tokens = min(max_tokens, self.max_model_len - 64)
+        else:
+            max_tokens = self.max_model_len - 64
+        
+        # Setup constrained processor (shared across batch items in single-CoT mode)
+        constrained_processor = self._setup_constrained_processor(
+            use_constrained_decoding=use_constrained_decoding,
+            constrained_decoding_debug=constrained_decoding_debug,
+            target_duration=target_duration,
+            user_metadata=user_metadata,
+            stop_at_reasoning=stop_at_reasoning,
+            skip_genres=skip_genres,
+            skip_caption=skip_caption,
+            skip_language=skip_language,
+            generation_phase=generation_phase,
+            is_batch=is_batch,
+            metadata_temperature=metadata_temperature,
+            codes_temperature=codes_temperature,
+        )
+        
+        # Build MLX logits processor adapter if constrained decoding is active
+        mlx_logits_processor = None
+        if constrained_processor is not None:
+            adapter = mlx_lm_backend.MLXConstrainedLogitsAdapter(constrained_processor)
+            mlx_logits_processor = adapter
+        
+        backend: mlx_lm_backend.MLXLMBackend = self.llm
+        
+        output_texts = []
+        for i, formatted_prompt in enumerate(formatted_prompt_list):
+            # Set seed if provided
+            if seeds and i < len(seeds):
+                device_utils.manual_seed(seeds[i])
+            
+            # Reset constrained processor for each item in batch
+            if constrained_processor is not None and i > 0:
+                constrained_processor.reset()
+                if mlx_logits_processor is not None:
+                    mlx_logits_processor.reset()
+            
+            # Determine if CFG is needed
+            use_cfg = cfg_scale > 1.0
+            
+            if use_cfg:
+                # Build unconditional prompt for CFG
+                formatted_unconditional_prompt = self._build_unconditional_prompt(
+                    caption=caption,
+                    lyrics=lyrics,
+                    cot_text=cot_text,
+                    negative_prompt=negative_prompt,
+                    generation_phase=generation_phase,
+                    is_batch=is_batch,
+                )
+                
+                output_text = backend.generate_with_cfg(
+                    prompt=formatted_prompt,
+                    unconditional_prompt=formatted_unconditional_prompt,
+                    cfg_scale=cfg_scale,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    repetition_penalty=repetition_penalty,
+                    logits_processor=mlx_logits_processor,
+                )
+            else:
+                output_text = backend.generate(
+                    prompt=formatted_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    repetition_penalty=repetition_penalty,
+                    logits_processor=mlx_logits_processor,
+                )
+            
+            output_texts.append(output_text)
+        
+        # Return single string for single mode, list for batch mode
+        return output_texts[0] if not is_batch else output_texts
 
     def _run_vllm(
         self,
@@ -737,7 +913,7 @@ class LLMHandler:
         generated_ids = generated_ids[input_length:]
         
         # Move to CPU for decoding
-        if generated_ids.is_cuda:
+        if not generated_ids.is_cpu:
             generated_ids = generated_ids.cpu()
         
         output_text = self.llm_tokenizer.decode(generated_ids, skip_special_tokens=False)
@@ -781,9 +957,7 @@ class LLMHandler:
             for i, formatted_prompt in enumerate(formatted_prompt_list):
                 # Set seed for this item if provided
                 if seeds and i < len(seeds):
-                    torch.manual_seed(seeds[i])
-                    if torch.cuda.is_available():
-                        torch.cuda.manual_seed_all(seeds[i])
+                    device_utils.manual_seed(seeds[i])
                 
                 # Generate using single-item method with batch-mode defaults
                 output_text = self._run_pt_single(
@@ -1070,43 +1244,30 @@ class LLMHandler:
             formatted_prompts = [formatted_prompt_with_cot] * actual_batch_size
             
             # Call backend-specific batch generation
+            _batch_kwargs = dict(
+                formatted_prompts=formatted_prompts,
+                temperature=temperature,
+                cfg_scale=cfg_scale,
+                negative_prompt=negative_prompt,
+                top_k=top_k,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                use_constrained_decoding=use_constrained_decoding,
+                constrained_decoding_debug=constrained_decoding_debug,
+                target_duration=target_duration,
+                generation_phase="codes",
+                caption=caption,
+                lyrics=lyrics,
+                cot_text=cot_text,
+                seeds=seeds,
+            )
             try:
                 if self.llm_backend == "vllm":
-                    codes_outputs = self._run_vllm(
-                        formatted_prompts=formatted_prompts,
-                        temperature=temperature,
-                        cfg_scale=cfg_scale,
-                        negative_prompt=negative_prompt,
-                        top_k=top_k,
-                        top_p=top_p,
-                        repetition_penalty=repetition_penalty,
-                        use_constrained_decoding=use_constrained_decoding,
-                        constrained_decoding_debug=constrained_decoding_debug,
-                        target_duration=target_duration,
-                        generation_phase="codes",
-                        caption=caption,
-                        lyrics=lyrics,
-                        cot_text=cot_text,
-                        seeds=seeds,
-                    )
+                    codes_outputs = self._run_vllm(**_batch_kwargs)
+                elif self.llm_backend == "mlx":
+                    codes_outputs = self._run_mlx(**_batch_kwargs)
                 else:  # pt backend
-                    codes_outputs = self._run_pt(
-                        formatted_prompts=formatted_prompts,
-                        temperature=temperature,
-                        cfg_scale=cfg_scale,
-                        negative_prompt=negative_prompt,
-                        top_k=top_k,
-                        top_p=top_p,
-                        repetition_penalty=repetition_penalty,
-                        use_constrained_decoding=use_constrained_decoding,
-                        constrained_decoding_debug=constrained_decoding_debug,
-                        target_duration=target_duration,
-                        generation_phase="codes",
-                        caption=caption,
-                        lyrics=lyrics,
-                        cot_text=cot_text,
-                        seeds=seeds,
-                    )
+                    codes_outputs = self._run_pt(**_batch_kwargs)
             except Exception as e:
                 error_msg = f"Error in batch codes generation: {str(e)}"
                 logger.error(error_msg)
@@ -1945,32 +2106,8 @@ class LLMHandler:
         cot_text = cfg.get("cot_text", "")
 
         try:
-            if self.llm_backend == "vllm":
-                output_text = self._run_vllm(
-                    formatted_prompts=formatted_prompt,
-                    temperature=temperature,
-                    cfg_scale=cfg_scale,
-                    negative_prompt=negative_prompt,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    use_constrained_decoding=use_constrained_decoding,
-                    constrained_decoding_debug=constrained_decoding_debug,
-                    target_duration=target_duration,
-                    user_metadata=user_metadata,
-                    stop_at_reasoning=stop_at_reasoning,
-                    skip_genres=skip_genres,
-                    skip_caption=skip_caption,
-                    skip_language=skip_language,
-                    generation_phase=generation_phase,
-                    caption=caption,
-                    lyrics=lyrics,
-                    cot_text=cot_text,
-                )
-                return output_text, f"✅ Generated successfully (vllm) | length={len(output_text)}"
-
-            # PyTorch backend
-            output_text = self._run_pt(
+            # Common kwargs for all backends
+            _gen_kwargs = dict(
                 formatted_prompts=formatted_prompt,
                 temperature=temperature,
                 cfg_scale=cfg_scale,
@@ -1991,6 +2128,17 @@ class LLMHandler:
                 lyrics=lyrics,
                 cot_text=cot_text,
             )
+
+            if self.llm_backend == "vllm":
+                output_text = self._run_vllm(**_gen_kwargs)
+                return output_text, f"✅ Generated successfully (vllm) | length={len(output_text)}"
+
+            if self.llm_backend == "mlx":
+                output_text = self._run_mlx(**_gen_kwargs)
+                return output_text, f"✅ Generated successfully (mlx) | length={len(output_text)}"
+
+            # PyTorch backend (default)
+            output_text = self._run_pt(**_gen_kwargs)
             return output_text, f"✅ Generated successfully (pt) | length={len(output_text)}"
 
         except Exception as e:
@@ -2013,13 +2161,9 @@ class LLMHandler:
                         self.llm.reset()
                 except Exception:
                     pass  # Ignore errors during cleanup
-            # Clear CUDA or XPU cache to release any corrupted memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                torch.xpu.empty_cache()
-                torch.xpu.synchronize()
+            # Clear device cache to release any corrupted memory
+            device_utils.empty_cache(self.device)
+            device_utils.synchronize(self.device)
             return "", f"❌ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
     
     def _generate_with_constrained_decoding(
@@ -2365,8 +2509,8 @@ class LLMHandler:
             yield
             return
         
-        # If using nanovllm, do not offload (it stays on GPU)
-        if self.llm_backend == "vllm":
+        # If using nanovllm or MLX, do not offload (they manage their own memory)
+        if self.llm_backend in ("vllm", "mlx"):
             yield
             return
         
@@ -2391,7 +2535,7 @@ class LLMHandler:
             start_time = time.time()
             if hasattr(model, "to"):
                 model.to("cpu")
-            torch.cuda.empty_cache()
+            device_utils.empty_cache(self.device)
             offload_time = time.time() - start_time
             logger.info(f"Offloaded LLM to CPU in {offload_time:.4f}s")
     
@@ -2408,6 +2552,27 @@ class LLMHandler:
         if self.llm_backend == "pt":
             # For PyTorch backend, directly return the model
             return self.llm
+        
+        elif self.llm_backend == "mlx":
+            # For MLX backend, load a separate HuggingFace model for scoring
+            # MLX models can't be used directly with PyTorch-based scoring
+            if self._hf_model_for_scoring is None:
+                logger.info("Loading HuggingFace model for scoring (MLX backend)")
+                model_path = self.llm.model_path
+                import time
+                start_time = time.time()
+                self._hf_model_for_scoring = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    trust_remote_code=True,
+                    torch_dtype=self.dtype,
+                )
+                load_time = time.time() - start_time
+                logger.info(f"HuggingFace model loaded in {load_time:.2f}s")
+                # Move to MPS for scoring
+                self._hf_model_for_scoring = self._hf_model_for_scoring.to(self.device)
+                self._hf_model_for_scoring.eval()
+                logger.info(f"HuggingFace model for scoring ready on {self.device}")
+            return self._hf_model_for_scoring
         
         elif self.llm_backend == "vllm":
             # For vllm backend, load HuggingFace model from disk

@@ -836,7 +836,8 @@ class MusicLyricScorer:
         """
         # Ensure Inputs are Tensors on the correct device
         if not isinstance(energy_matrix, torch.Tensor):
-            energy_matrix = torch.tensor(energy_matrix, device='cuda', dtype=torch.float32)
+            from acestep.device_utils import get_device_type
+            energy_matrix = torch.tensor(energy_matrix, device=get_device_type(), dtype=torch.float32)
 
         device = energy_matrix.device
 

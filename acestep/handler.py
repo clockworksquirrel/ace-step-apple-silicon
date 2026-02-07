@@ -44,6 +44,7 @@ from acestep.constants import (
 )
 from acestep.dit_alignment_score import MusicStampsAligner, MusicLyricScorer
 from acestep.gpu_config import get_gpu_memory_gb
+from acestep import device_utils
 
 
 warnings.filterwarnings("ignore")
@@ -334,6 +335,11 @@ class AceStepHandler:
             (status_message, enable_generate_button)
         """
         try:
+            # Default config_path if not provided (e.g., empty dropdown before models downloaded)
+            if not config_path:
+                config_path = "acestep-v15-sft"
+                logger.info(f"[initialize_service] No config_path provided, defaulting to '{config_path}'")
+
             if device == "auto":
                 if hasattr(torch, 'xpu') and torch.xpu.is_available():
                     device = "xpu"
@@ -350,7 +356,7 @@ class AceStepHandler:
             self.offload_to_cpu = offload_to_cpu
             self.offload_dit_to_cpu = offload_dit_to_cpu
             # Set dtype based on device: bfloat16 for cuda, float32 for cpu
-            self.dtype = torch.bfloat16 if device in ["cuda","xpu"] else torch.float32
+            self.dtype = torch.bfloat16 if device in ["cuda", "xpu", "mps"] else torch.float32
             self.quantization = quantization
             if self.quantization is not None:
                 assert compile_model, "Quantization requires compile_model to be True"
@@ -626,9 +632,9 @@ class AceStepHandler:
                     moved_state_dict[key] = value
             model.load_state_dict(moved_state_dict)
         
-        # Synchronize CUDA to ensure all transfers are complete
-        if device != "cpu" and torch.cuda.is_available():
-            torch.cuda.synchronize()
+        # Synchronize device to ensure all transfers are complete
+        if device != "cpu":
+            device_utils.synchronize(device)
         
         # Final verification
         if device != "cpu":
@@ -703,7 +709,7 @@ class AceStepHandler:
             # silence_latent is used in many places outside of model context,
             # so it should stay on GPU to avoid device mismatch errors.
             
-            torch.cuda.empty_cache()
+            device_utils.empty_cache(self.device)
             offload_time = time.time() - start_time
             self.current_offload_cost += offload_time
             logger.info(f"[_load_model_context] Offloaded {model_name} to CPU in {offload_time:.4f}s")
@@ -1037,7 +1043,7 @@ class AceStepHandler:
     def _get_vae_dtype(self, device: Optional[str] = None) -> torch.dtype:
         """Get VAE dtype based on device."""
         device = device or self.device
-        return torch.bfloat16 if device in ["cuda", "xpu"] else self.dtype
+        return torch.bfloat16 if device in ["cuda", "xpu", "mps"] else self.dtype
     
     def _format_instruction(self, instruction: str) -> str:
         """Format instruction to ensure it ends with colon."""
@@ -2937,9 +2943,9 @@ class AceStepHandler:
                     
                     # Release original pred_latents to free VRAM before VAE decode
                     del pred_latents
-                    torch.cuda.empty_cache()
+                    device_utils.empty_cache(self.device)
                     
-                    logger.debug(f"[generate_music] Before VAE decode: allocated={torch.cuda.memory_allocated()/1024**3:.2f}GB, max={torch.cuda.max_memory_allocated()/1024**3:.2f}GB")
+                    logger.debug(f"[generate_music] Before VAE decode: allocated={device_utils.memory_allocated(self.device)/1024**3:.2f}GB, max={device_utils.max_memory_allocated(self.device)/1024**3:.2f}GB")
                     
                     if use_tiled_decode:
                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
@@ -2949,7 +2955,7 @@ class AceStepHandler:
                         pred_wavs = decoder_output.sample
                         del decoder_output
                     
-                    logger.debug(f"[generate_music] After VAE decode: allocated={torch.cuda.memory_allocated()/1024**3:.2f}GB, max={torch.cuda.max_memory_allocated()/1024**3:.2f}GB")
+                    logger.debug(f"[generate_music] After VAE decode: allocated={device_utils.memory_allocated(self.device)/1024**3:.2f}GB, max={device_utils.max_memory_allocated(self.device)/1024**3:.2f}GB")
                     
                     # Release pred_latents_for_decode after decode
                     del pred_latents_for_decode
@@ -2958,7 +2964,7 @@ class AceStepHandler:
                     if pred_wavs.dtype != torch.float32:
                         pred_wavs = pred_wavs.float()
                     
-                    torch.cuda.empty_cache()
+                    device_utils.empty_cache(self.device)
             end_time = time.time()
             time_costs["vae_decode_time_cost"] = end_time - start_time
             time_costs["total_time_cost"] = time_costs["total_time_cost"] + time_costs["vae_decode_time_cost"]

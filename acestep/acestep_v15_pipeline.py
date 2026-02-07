@@ -64,7 +64,8 @@ def create_demo(init_params=None, language='en'):
         language: UI language code ('en', 'zh', 'ja', default: 'en')
     
     Returns:
-        Gradio Blocks instance
+        Tuple of (demo, dit_handler, llm_handler) — Gradio Blocks instance and the
+        handler objects so callers (e.g. DJ chat) can share the same references.
     """
     # Use pre-initialized handlers if available, otherwise create new ones
     if init_params and init_params.get('pre_initialized') and 'dit_handler' in init_params:
@@ -79,7 +80,7 @@ def create_demo(init_params=None, language='en'):
     # Create Gradio interface with all handlers and initialization parameters
     demo = create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_params=init_params, language=language)
     
-    return demo
+    return demo, dit_handler, llm_handler
 
 
 def main():
@@ -319,7 +320,13 @@ def main():
                 'output_dir': output_dir,  # Pass output dir to UI
             }
         
-        demo = create_demo(init_params=init_params, language=args.language)
+        demo, ui_dit_handler, ui_llm_handler = create_demo(init_params=init_params, language=args.language)
+        
+        # If main() didn't pre-initialize handlers, adopt the ones create_demo made
+        if dit_handler is None:
+            dit_handler = ui_dit_handler
+        if llm_handler is None:
+            llm_handler = ui_llm_handler
         
         # Enable queue for multi-user support
         # This ensures proper request queuing and prevents concurrent generation conflicts
@@ -329,6 +336,35 @@ def main():
             status_update_rate="auto",  # Update rate for queue status
             default_concurrency_limit=1,  # Prevents VRAM saturation
         )
+
+        # --- DJ Chat interface (separate port) ---
+        dj_port = args.port + 1  # DJ on port 7861
+        print(f"Creating DJ Ace chat interface on port {dj_port}...")
+        try:
+            from acestep.dj_chat import create_dj_chat
+            import threading
+            dj_demo = create_dj_chat(
+                dit_handler=dit_handler,
+                llm_handler=llm_handler,
+                init_params=init_params,
+            )
+            dj_demo.queue(max_size=10, default_concurrency_limit=1)
+
+            def _launch_dj():
+                dj_demo.launch(
+                    server_name=args.server_name,
+                    server_port=dj_port,
+                    show_error=True,
+                    prevent_thread_lock=True,
+                    inbrowser=False,
+                    allowed_paths=[output_dir, os.path.join(output_dir, "dj_sets")],
+                )
+                print(f"🎧 DJ Ace live at http://{args.server_name}:{dj_port}")
+
+            dj_thread = threading.Thread(target=_launch_dj, daemon=True)
+            dj_thread.start()
+        except Exception as e:
+            print(f"Warning: Failed to create DJ chat interface: {e}", file=sys.stderr)
 
         print(f"Launching server on {args.server_name}:{args.port}...")
 
@@ -377,11 +413,19 @@ def main():
                 share=args.share,
                 debug=args.debug,
                 show_error=True,
-                prevent_thread_lock=False,
+                prevent_thread_lock=True,
                 inbrowser=False,
                 auth=auth,
-                allowed_paths=[output_dir],  # Fix audio loading on Windows
+                allowed_paths=[output_dir],
             )
+
+            # Block the main thread
+            try:
+                while True:
+                    import time
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nShutting down...")
     except Exception as e:
         print(f"Error launching Gradio: {e}", file=sys.stderr)
         import traceback

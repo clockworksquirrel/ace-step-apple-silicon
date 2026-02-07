@@ -25,6 +25,7 @@ except ImportError:
     logger.warning("Lightning Fabric not installed. Training will use basic training loop.")
 
 from acestep.training.configs import LoRAConfig, TrainingConfig
+from acestep import device_utils
 from acestep.training.lora_utils import (
     inject_lora_into_dit,
     save_lora_weights,
@@ -135,7 +136,8 @@ class PreprocessedLoRAModule(nn.Module):
             Loss tensor (float32 for stable backward)
         """
         # Use autocast for bf16 mixed precision training
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        autocast_device = device_utils._resolve_device_type(self.device)
+        with torch.autocast(device_type=autocast_device, dtype=torch.bfloat16):
             # Get tensors from batch (already on device from Fabric dataloader)
             target_latents = batch["target_latents"].to(self.device)  # x0
             attention_mask = batch["attention_mask"].to(self.device)
@@ -242,12 +244,14 @@ class LoRATrainer:
                 dtype=self.dit_handler.dtype,
             )
             
-            # Create data module
+            # Create data module (pin_memory only supported on CUDA)
+            device_type = device_utils._resolve_device_type(self.dit_handler.device)
+            use_pin_memory = self.training_config.pin_memory and device_type == "cuda"
             data_module = PreprocessedDataModule(
                 tensor_dir=tensor_dir,
                 batch_size=self.training_config.batch_size,
                 num_workers=self.training_config.num_workers,
-                pin_memory=self.training_config.pin_memory,
+                pin_memory=use_pin_memory,
             )
             
             # Setup data

@@ -1,704 +1,584 @@
-<h1 align="center">ACE-Step 1.5</h1>
-<h1 align="center">Pushing the Boundaries of Open-Source Music Generation</h1>
-<p align="center">
-    <a href="https://ace-step.github.io/ace-step-v1.5.github.io/">Project</a> |
-    <a href="https://huggingface.co/ACE-Step/Ace-Step1.5">Hugging Face</a> |
-    <a href="https://modelscope.cn/models/ACE-Step/Ace-Step1.5">ModelScope</a> |
-    <a href="https://huggingface.co/spaces/ACE-Step/Ace-Step-v1.5">Space Demo</a> |
-    <a href="https://discord.gg/PeWDxrkdj7">Discord</a> |
-    <a href="https://arxiv.org/abs/2602.00744">Technical Report</a>
-</p>
+# ACE-Step 1.5 for Apple Silicon
 
-<p align="center">
-    <img src="./assets/orgnization_logos.png" width="100%" alt="StepFun Logo">
-</p>
+A fork of [ACE-Step 1.5](https://github.com/ACE-Step/ACE-Step-1.5) ported to run natively on Apple Silicon Macs using Metal Performance Shaders (MPS) and MLX. Includes an AI DJ chat interface powered by Claude.
 
-## Table of Contents
+**What this fork adds:**
+- Native MPS/Metal acceleration for all pipeline stages (DiT, VAE, LM)
+- MLX-LM backend for faster language model inference on Apple Silicon
+- AI DJ chat interface with Claude for conversational music generation
+- Automatic device detection and memory-aware configuration
+- LoRA training support on MPS
 
-- [✨ Features](#-features)
-- [📦 Installation](#-installation)
-- [📥 Model Download](#-model-download)
-- [🚀 Usage](#-usage)
-- [📖 Tutorial](#-tutorial)
-- [🔨 Train](#-train)
-- [🏗️ Architecture](#️-architecture)
-- [🦁 Model Zoo](#-model-zoo)
-
-## 📝 Abstract
-🚀 We present ACE-Step v1.5, a highly efficient open-source music foundation model that brings commercial-grade generation to consumer hardware. On commonly used evaluation metrics, ACE-Step v1.5 achieves quality beyond most commercial music models while remaining extremely fast—under 2 seconds per full song on an A100 and under 10 seconds on an RTX 3090. The model runs locally with less than 4GB of VRAM, and supports lightweight personalization: users can train a LoRA from just a few songs to capture their own style.
-
-🌉 At its core lies a novel hybrid architecture where the Language Model (LM) functions as an omni-capable planner: it transforms simple user queries into comprehensive song blueprints—scaling from short loops to 10-minute compositions—while synthesizing metadata, lyrics, and captions via Chain-of-Thought to guide the Diffusion Transformer (DiT). ⚡ Uniquely, this alignment is achieved through intrinsic reinforcement learning relying solely on the model's internal mechanisms, thereby eliminating the biases inherent in external reward models or human preferences. 🎚️
-
-🔮 Beyond standard synthesis, ACE-Step v1.5 unifies precise stylistic control with versatile editing capabilities—such as cover generation, repainting, and vocal-to-BGM conversion—while maintaining strict adherence to prompts across 50+ languages. This paves the way for powerful tools that seamlessly integrate into the creative workflows of music artists, producers, and content creators. 🎸
-
-
-## ✨ Features
-
-<p align="center">
-    <img src="./assets/application_map.png" width="100%" alt="ACE-Step Framework">
-</p>
-
-### ⚡ Performance
-- ✅ **Ultra-Fast Generation** — Under 2s per full song on A100, under 10s on RTX 3090 (0.5s to 10s on A100 depending on think mode & diffusion steps)
-- ✅ **Flexible Duration** — Supports 10 seconds to 10 minutes (600s) audio generation
-- ✅ **Batch Generation** — Generate up to 8 songs simultaneously
-
-### 🎵 Generation Quality
-- ✅ **Commercial-Grade Output** — Quality beyond most commercial music models (between Suno v4.5 and Suno v5)
-- ✅ **Rich Style Support** — 1000+ instruments and styles with fine-grained timbre description
-- ✅ **Multi-Language Lyrics** — Supports 50+ languages with lyrics prompt for structure & style control
-
-### 🎛️ Versatility & Control
-
-| Feature | Description |
-|---------|-------------|
-| ✅ Reference Audio Input | Use reference audio to guide generation style |
-| ✅ Cover Generation | Create covers from existing audio |
-| ✅ Repaint & Edit | Selective local audio editing and regeneration |
-| ✅ Track Separation | Separate audio into individual stems |
-| ✅ Multi-Track Generation | Add layers like Suno Studio's "Add Layer" feature |
-| ✅ Vocal2BGM | Auto-generate accompaniment for vocal tracks |
-| ✅ Metadata Control | Control duration, BPM, key/scale, time signature |
-| ✅ Simple Mode | Generate full songs from simple descriptions |
-| ✅ Query Rewriting | Auto LM expansion of tags and lyrics |
-| ✅ Audio Understanding | Extract BPM, key/scale, time signature & caption from audio |
-| ✅ LRC Generation | Auto-generate lyric timestamps for generated music |
-| ✅ LoRA Training | One-click annotation & training in Gradio. 8 songs, 1 hour on 3090 (12GB VRAM) |
-| ✅ Quality Scoring | Automatic quality assessment for generated audio |
-
-## Staying ahead
------------------
-Star ACE-Step on GitHub and be instantly notified of new releases
-![](assets/star.gif)
-
-## 📦 Installation
-
-> **Requirements:** Python 3.11, CUDA GPU recommended (works on CPU/MPS but slower)
-
-### AMD / ROCm GPUs
-
-ACE-Step can run on AMD GPUs via ROCm, but `uv run acestep` currently forces CUDA PyTorch wheels, even if ROCm PyTorch is already installed. This is expected behavior with uv’s dependency resolver.
-
-Until uv dependency resolution is made backend-aware, **AMD users should run ACE-Step directly from an activated virtual environment**, not via `uv run acestep`.
-
-**Recommended workflow (Linux):**
-
-```bash
-source .venv/bin/activate
-python -m acestep.acestep_v15_pipeline --server-name 127.0.0.1 --port 7680
-```
-
-Windows users can follow the same approach using the activated `.venv`. This avoids uv reinstalling CUDA PyTorch and allows ROCm PyTorch to be used correctly.
-
-### 🪟 Windows Portable Package (Recommended for Windows)
-
-For Windows users, we provide a portable package with pre-installed dependencies:
-
-1. Download and extract: [ACE-Step-1.5.7z](https://files.acemusic.ai/acemusic/win/ACE-Step-1.5.7z)
-2. The package includes `python_embeded` with all dependencies pre-installed
-3. **Requirements:** CUDA 12.8
-
-#### 🚀 Quick Start Scripts
-
-The portable package includes convenient batch scripts for easy operation:
-
-| Script | Description | Usage |
-|--------|-------------|-------|
-| **start_gradio_ui.bat** | Launch Gradio Web UI | Double-click or run from terminal |
-| **start_api_server.bat** | Launch REST API Server | Double-click or run from terminal |
-
-**Basic Usage:**
-
-```bash
-# Launch Gradio Web UI (Recommended)
-start_gradio_ui.bat
-
-# Launch REST API Server
-start_api_server.bat
-```
-
-Both scripts support:
-- ✅ Auto environment detection (`python_embeded` or `uv`)
-- ✅ Auto install `uv` if needed (via winget or PowerShell)
-- ✅ Configurable download source (HuggingFace/ModelScope)
-- ✅ Optional Git update check before startup
-- ✅ Customizable language, models, and parameters
-
-#### 📝 Configuration
-
-Edit the scripts to customize settings:
-
-**start_gradio_ui.bat:**
-```batch
-REM UI language (en, zh, ja)
-set LANGUAGE=zh
-
-REM Download source (auto, huggingface, modelscope)
-set DOWNLOAD_SOURCE=--download-source modelscope
-
-REM Git update check (true/false) - requires PortableGit
-set CHECK_UPDATE=true
-
-REM Model configuration
-set CONFIG_PATH=--config_path acestep-v15-turbo
-set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-1.7B
-
-REM LLM initialization (auto/true/false)
-REM Auto: enabled if VRAM > 6GB, disabled otherwise
-REM set INIT_LLM=--init_llm true   # Force enable (may cause OOM on low VRAM)
-REM set INIT_LLM=--init_llm false  # Force disable (DiT-only mode)
-```
-
-**start_api_server.bat:**
-```batch
-REM LLM initialization via environment variable
-REM set ACESTEP_INIT_LLM=true   # Force enable LLM
-REM set ACESTEP_INIT_LLM=false  # Force disable LLM (DiT-only mode)
-
-REM LM model path (optional)
-REM set LM_MODEL_PATH=--lm-model-path acestep-5Hz-lm-0.6B
-```
-
-#### 🔄 Update & Maintenance Tools
-
-| Script | Purpose | When to Use |
-|--------|---------|-------------|
-| **check_update.bat** | Check and update from GitHub | When you want to update to the latest version |
-| **merge_config.bat** | Merge backed-up configurations | After updating when config conflicts occur |
-| **install_uv.bat** | Install uv package manager | If uv installation failed during startup |
-| **quick_test.bat** | Test environment setup | To verify your environment is working |
-| **test_git_update.bat** | Test Git update functionality | To verify PortableGit is working correctly |
-
-**Update Workflow:**
-
-```bash
-# 1. Check for updates (requires PortableGit/)
-check_update.bat
-
-# 2. If conflicts occur, your changes are backed up automatically
-# 3. After update, merge your settings back
-merge_config.bat
-
-# Options:
-# - Compare backup with current files (side-by-side in Notepad)
-# - Restore files from backup
-# - List all backed-up files
-# - Delete old backups
-```
-
-**Environment Testing:**
-
-```bash
-# Test your setup
-quick_test.bat
-
-# This checks:
-# - Python installation (python_embeded or system Python)
-# - uv installation and PATH
-# - GPU availability (CUDA/ROCm)
-# - Basic imports
-```
-
-#### 📦 Portable Git Support
-
-If you have `PortableGit/` folder in your package, you can:
-
-1. **Enable Auto-Updates:** Edit `start_gradio_ui.bat` or `start_api_server.bat`
-   ```batch
-   set CHECK_UPDATE=true
-   ```
-
-2. **Manual Update Check:**
-   ```bash
-   check_update.bat
-   ```
-
-3. **Conflict Handling:** When your modified files conflict with GitHub updates:
-   - Files are automatically backed up to `.update_backup_YYYYMMDD_HHMMSS/`
-   - Use `merge_config.bat` to compare and merge changes
-   - Supports all file types: `.bat`, `.py`, `.yaml`, `.json`, etc.
-
-**Update Features:**
-- ⏱️ 10-second timeout protection (won't block startup if GitHub is unreachable)
-- 💾 Smart conflict detection and backup
-- 🔄 Automatic rollback on failure
-- 📁 Preserves directory structure in backups
-
-#### 🛠️ Advanced Options
-
-**Environment Detection Priority:**
-1. `python_embeded\python.exe` (if exists)
-2. `uv run acestep` (if uv is installed)
-3. Auto-install uv via winget or PowerShell
-
-**Download Source:**
-- `auto`: Auto-detect best source (checks Google accessibility)
-- `huggingface`: Use HuggingFace Hub
-- `modelscope`: Use ModelScope
+**What it keeps:**
+- Full compatibility with the upstream feature set (text-to-music, covers, repaint, track separation, multi-track, vocal-to-BGM)
+- CUDA support is untouched. This fork works on both CUDA and Apple Silicon.
 
 ---
 
-### Standard Installation (All Platforms)
+## Table of Contents
 
-### 1. Install uv (Package Manager)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Interfaces](#interfaces)
+  - [Main Studio UI](#main-studio-ui)
+  - [AI DJ Chat](#ai-dj-chat)
+  - [API Server](#api-server)
+  - [CLI](#cli)
+- [Apple Silicon Optimizations](#apple-silicon-optimizations)
+  - [MPS Backend](#mps-backend)
+  - [MLX-LM Acceleration](#mlx-lm-acceleration)
+  - [Memory Management](#memory-management)
+- [Models](#models)
+- [Features](#features)
+- [LoRA Training](#lora-training)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [Architecture](#architecture)
+- [Credits](#credits)
+
+---
+
+## Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| macOS | 13.0 (Ventura) | 14.0+ (Sonoma/Sequoia) |
+| Chip | Apple M1 | M2 Pro / M3 Pro or better |
+| RAM | 16 GB unified | 32 GB+ unified |
+| Python | 3.11.x | 3.11.x via uv |
+| PyTorch | 2.4+ | Latest stable |
+| Disk | 15 GB | 25 GB (with LoRA datasets) |
+
+Python must be 3.11.x. The `pyproject.toml` pins `requires-python = "==3.11.*"`.
+
+For CUDA systems, the upstream requirements apply. This fork does not change CUDA behavior.
+
+---
+
+## Installation
+
+### Using uv (Recommended)
+
+[uv](https://docs.astral.sh/uv/) handles Python versions, virtual environments, and dependencies in one tool.
 
 ```bash
-# macOS / Linux
+# Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Windows (PowerShell)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+# Clone the repo
+git clone https://github.com/YOUR_USERNAME/ace-step-apple-silicon.git
+cd ace-step-apple-silicon
+
+# Install dependencies (uv auto-selects Python 3.11)
+uv sync
+
+# Verify
+uv run python -c "
+import torch
+print(f'PyTorch {torch.__version__}')
+print(f'MPS available: {torch.backends.mps.is_available()}')
+try:
+    import mlx
+    print(f'MLX {mlx.__version__}')
+except ImportError:
+    print('MLX not installed (optional)')
+"
 ```
 
-### 2. Clone & Install
+### Using pip
 
 ```bash
-git clone https://github.com/ACE-Step/ACE-Step-1.5.git
-cd ACE-Step-1.5
+git clone https://github.com/YOUR_USERNAME/ace-step-apple-silicon.git
+cd ace-step-apple-silicon
+
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### Install Python 3.11 (if needed)
+
+```bash
+# Homebrew
+brew install python@3.11
+
+# pyenv
+pyenv install 3.11.11
+pyenv local 3.11.11
+
+# uv
+uv python install 3.11
+```
+
+---
+
+## Quick Start
+
+```bash
+# Launch the server
+uv run acestep --server-name 0.0.0.0 --port 7860
+
+# Main studio UI:  http://localhost:7860
+# AI DJ chat:      http://localhost:7861
+```
+
+Models are downloaded automatically on first launch when you click "Initialize Service" in the UI. The first download is roughly 5 GB.
+
+To pre-initialize from the command line (skips the UI button):
+
+```bash
+uv run acestep \
+  --init_service True \
+  --device auto \
+  --init_llm True \
+  --backend pt \
+  --config_path acestep-v15-sft \
+  --lm_model_path acestep-5Hz-lm-4B \
+  --server-name 0.0.0.0 \
+  --port 7860
+```
+
+---
+
+## Interfaces
+
+### Main Studio UI
+
+**URL:** `http://localhost:7860`
+
+The full-featured generation interface. This is the same Gradio UI from upstream ACE-Step, with Apple Silicon support added.
+
+Features accessible from the main UI:
+- **Text-to-Music** with caption, lyrics, genre tags, and metadata control
+- **Cover Generation** from reference audio
+- **Repaint/Edit** for selective region editing
+- **Track Separation** into stems
+- **Multi-Track/Lego** for layered generation
+- **Vocal-to-BGM** conversion
+- **Simple Mode** where the LM generates everything from a short prompt
+- **Audio Understanding** to extract BPM, key, time signature from uploads
+- **LoRA training and loading** via dedicated tabs
+- **Quality scoring** for generated output
+
+Use the "Initialize Service" button (under Service Configuration) to load models before generating. Select your preferred DiT model, LM model, and device.
+
+### AI DJ Chat
+
+**URL:** `http://localhost:7861`
+
+A conversational interface for music generation. Chat with an AI DJ (powered by Claude or another LLM) to describe what you want, brainstorm ideas, and generate tracks through natural language.
+
+How it works:
+1. You describe the music you want in plain language
+2. The DJ discusses ideas, asks clarifying questions, suggests approaches
+3. When you're ready, tell the DJ to generate and it produces a structured plan
+4. Click the Generate button to run ACE-Step on the plan
+5. Audio appears in the chat
+
+The DJ chat supports:
+- Natural language control over all generation parameters (genre, mood, tempo, key, duration, lyrics)
+- Reference audio upload with percentage-based influence control
+- Multi-track setlist planning
+- Any LLM provider (OpenRouter, Gemini, Ollama, or compatible OpenAI API)
+
+#### Setting up the DJ
+
+Create a `.env` file in the project root:
+
+```bash
+# OpenRouter (recommended for Claude)
+OPENROUTER_API_KEY=your-key-here
+
+# Or Gemini
+# GEMINI_API_KEY=your-key-here
+```
+
+The DJ defaults to `anthropic/claude-opus-4-6:online` via OpenRouter. If no API key is set, it falls back to Ollama (local).
+
+You can also configure the provider and model in the settings panel at the top of the DJ chat UI.
+
+### API Server
+
+Enable the REST API with `--enable-api`:
+
+```bash
+uv run acestep \
+  --init_service True \
+  --enable-api \
+  --device auto \
+  --backend pt \
+  --server-name 0.0.0.0 \
+  --port 7860
+```
+
+Endpoints:
+- `GET /health` -- Health check
+- `POST /release_task` -- Submit a generation task
+- `POST /query_result` -- Poll for results
+- `POST /create_random_sample` -- Generate random sample params
+- `POST /format_lyrics` -- Format lyrics input
+
+### CLI
+
+Generate directly from the command line:
+
+```bash
+uv run python -m acestep.cli generate \
+  --caption "upbeat electronic dance track with soaring synths" \
+  --duration 30 \
+  --device auto \
+  --backend pt
+```
+
+Use `--backend pt` on macOS. The `vllm` backend requires CUDA.
+
+---
+
+## Apple Silicon Optimizations
+
+### MPS Backend
+
+This fork patches the pipeline to run on Metal Performance Shaders (MPS) natively. The changes are transparent: set `--device auto` and the system detects Apple Silicon automatically.
+
+What was patched:
+- `device_utils.py` -- Centralized device detection with MPS support
+- `handler.py` -- DiT model loading defaults to `acestep-v15-sft` on MPS, handles MPS memory management
+- `gpu_config.py` -- Reads system memory via `os.sysconf` instead of CUDA-only queries, memory-aware tier selection
+- `dit_alignment_score.py` -- MPS-compatible alignment scoring
+- `generation.py` -- MPS-safe generation pipeline
+- `llm_inference.py` -- Forces PyTorch backend on MPS, adds MLX auto-detection, MPS-compatible tensor handling
+- `prepare_vae_calibration_data.py` -- MPS device support for VAE calibration
+
+Technical details:
+- bfloat16 is used throughout (supported on MPS since PyTorch 2.4)
+- `torch.mps.empty_cache()` and `torch.mps.synchronize()` replace CUDA equivalents
+- VAE tiled decode uses smaller chunk sizes on MPS to stay within Metal's conv1d output limits
+- Flash attention is automatically disabled on MPS (CUDA-only)
+- `torch.compile` is disabled on MPS (limited support)
+
+### MLX-LM Acceleration
+
+The fork includes a full MLX-LM backend (`mlx_lm_backend.py`, 567 lines) for faster language model inference on Apple Silicon. MLX is Apple's machine learning framework and can be significantly faster than PyTorch for autoregressive text generation on M-series chips.
+
+The backend:
+- Auto-converts Qwen3-based 5Hz LM models to MLX format on first use
+- Supports 4-bit and 8-bit quantization for reduced memory usage
+- Implements the same interface as the PyTorch LM backend
+- Falls back to PyTorch if MLX is not installed
+
+The fallback chain on MPS: MLX (if available) -> PyTorch -> error. On CUDA: vLLM (if available) -> PyTorch -> error.
+
+MLX and MLX-LM are included as optional dependencies in `pyproject.toml`. They install automatically on macOS.
+
+### Memory Management
+
+The system reads total system memory and selects a configuration tier:
+
+| RAM | Tier | Max Duration | Max Batch | Default LM |
+|-----|------|-------------|-----------|------------|
+| 8 GB | minimal | 60s | 1 | Off |
+| 16 GB | low | 120s | 2 | 0.6B |
+| 24 GB | medium | 300s | 4 | 1.7B |
+| 48 GB+ | high/unlimited | 600s | 8 | 4B |
+
+CPU offloading is automatically disabled on systems with 16 GB+ (unified memory makes it unnecessary in most cases). You can force it with `--offload_to_cpu True` if memory pressure is an issue.
+
+---
+
+## Models
+
+### DiT Models (Music Generation)
+
+| Model | Quality | Speed | VRAM |
+|-------|---------|-------|------|
+| `acestep-v15-sft` | Highest | Slower (32 steps) | ~4 GB |
+| `acestep-v15-turbo` | Good | Fast (8 steps) | ~4 GB |
+
+Default: `acestep-v15-sft` (this fork defaults to the highest quality model).
+
+### Language Models (5Hz LM)
+
+| Model | Parameters | RAM Usage | Speed |
+|-------|-----------|-----------|-------|
+| `acestep-5Hz-lm-0.6B` | 600M | ~2 GB | Fast |
+| `acestep-5Hz-lm-1.7B` | 1.7B | ~4 GB | Medium |
+| `acestep-5Hz-lm-4B` | 4B | ~8 GB | Slower |
+
+The LM handles Chain-of-Thought reasoning, query rewriting, lyric processing, and audio code generation. Bigger models produce better musical structure and lyrics alignment. On systems with sufficient RAM (32 GB+), the 4B model is recommended.
+
+Models download automatically into `./checkpoints/` on first use.
+
+### Pre-downloading Models
+
+```bash
+# DiT models
+uv run python -c "from acestep.model_downloader import ensure_dit_model; ensure_dit_model('checkpoints', 'acestep-v15-sft')"
+uv run python -c "from acestep.model_downloader import ensure_dit_model; ensure_dit_model('checkpoints', 'acestep-v15-turbo')"
+
+# LM models
+uv run python -c "from acestep.model_downloader import ensure_dit_model; ensure_dit_model('checkpoints', 'acestep-5Hz-lm-0.6B')"
+uv run python -c "from acestep.model_downloader import ensure_dit_model; ensure_dit_model('checkpoints', 'acestep-5Hz-lm-4B')"
+```
+
+---
+
+## Features
+
+### Generation Modes
+
+| Mode | Description | Notes |
+|------|-------------|-------|
+| Text-to-Music | Generate from caption + lyrics + tags | Core feature |
+| Cover | Generate a cover from reference audio | Requires audio upload |
+| Repaint/Edit | Re-generate a specific time region | Set start/end times |
+| Track Separation | Split audio into stems | Base model only |
+| Multi-Track (Lego) | Layer additional tracks | Base model only |
+| Complete | Continue/extend a track | Base model only |
+| Vocal-to-BGM | Remove vocals, generate accompaniment | Via extract mode |
+
+### LM Features
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| Simple Mode | LM generates everything from a short description | Off |
+| Query Rewriting (CoT Caption) | LM rewrites captions for better output | On |
+| Audio Understanding | LM analyzes uploaded audio for BPM, key, etc. | Manual |
+| CoT Metadata | LM generates BPM, key, time signature | On |
+| Constrained Decoding | Forces valid audio code output | On |
+
+### Post-Processing
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| LRC Timestamps | Synced lyric timestamps | Off |
+| Quality Scoring | PMI-based quality metric | On |
+
+### Generation Parameters
+
+| Parameter | Range | Default |
+|-----------|-------|---------|
+| Duration | 10s - 600s | 30s |
+| Batch Size | 1 - 8 | 2 |
+| Diffusion Steps | 1 - 100 | Model-dependent (8 for turbo, 32 for SFT) |
+| Guidance Scale | 1.0 - 15.0 | 3.0 |
+| BPM | 40 - 220 | Auto (LM decides) |
+| Key/Scale | All standard keys | Auto |
+| Time Signature | Common meters | 4/4 |
+
+---
+
+## LoRA Training
+
+Fine-tune ACE-Step with your own audio using LoRA adapters. Training runs on MPS via PyTorch and Lightning Fabric.
+
+### Quick Start
+
+1. Prepare a dataset: place audio files in a directory, or use the Dataset Builder tab in the UI
+2. Open the Training tab in the main UI and configure parameters
+3. Click Train
+
+Or via CLI:
+
+```bash
+uv run python -m acestep.training.trainer \
+  --data_dir ./my_dataset \
+  --output_dir ./lora_output \
+  --epochs 10 \
+  --batch_size 1 \
+  --learning_rate 1e-4
+```
+
+### MPS Training Notes
+
+- Uses `torch.autocast(device_type='mps', dtype=torch.bfloat16)` for mixed precision
+- `pin_memory` is automatically disabled (CUDA DMA optimization, not applicable to unified memory)
+- Lightning Fabric auto-detects MPS with `accelerator="auto"`
+- Start with batch_size=1 on 16 GB systems, increase on 32 GB+
+- Use gradient accumulation to simulate larger batches
+- LoRA rank 8-16 is a good default
+
+---
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the project root (gitignored by default):
+
+```bash
+# For AI DJ chat (pick one)
+OPENROUTER_API_KEY=your-key
+GEMINI_API_KEY=your-key
+
+# Or use Ollama (no key needed, runs locally)
+```
+
+### Command Line Arguments
+
+```
+--server-name       Bind address (default: 127.0.0.1, use 0.0.0.0 for LAN)
+--port              Port for main UI (default: 7860, DJ chat runs on port+1)
+--device            Device: auto, mps, cuda, cpu (default: auto)
+--backend           LM backend: pt, vllm (default: pt, use pt on macOS)
+--config_path       DiT model: acestep-v15-sft, acestep-v15-turbo
+--lm_model_path     LM model: acestep-5Hz-lm-0.6B, -1.7B, -4B
+--init_service      Pre-initialize models on startup (default: False)
+--init_llm          Initialize LM on startup (default: auto based on RAM)
+--offload_to_cpu    Move models to CPU between stages (default: auto)
+--offload_dit_to_cpu  Offload only DiT (default: False)
+--enable-api        Enable REST API endpoints
+--api-key           API key for REST API authentication
+--language          UI language: en, zh, ja (default: en)
+--download-source   Model source: auto, huggingface, modelscope
+```
+
+---
+
+## Troubleshooting
+
+### "MPS backend out of memory"
+
+Enable CPU offloading:
+
+```bash
+uv run acestep --offload_to_cpu True
+```
+
+Or reduce batch size to 1 in the UI. Close memory-intensive apps.
+
+### "MPS does not support bfloat16"
+
+Update PyTorch to 2.4 or later:
+
+```bash
+pip install --upgrade torch torchaudio
+```
+
+### Generation is slow
+
+- Use the turbo model (8 diffusion steps vs 32)
+- Use a smaller LM model
+- Reduce duration to 30s or less
+- Reduce batch size to 1
+
+On Apple Silicon, expect roughly 10-20x slower than an A100. Turbo mode is strongly recommended for iterative work.
+
+| Task | M1 Pro (16 GB) | M3 Pro (36 GB) | A100 (CUDA) |
+|------|----------------|-----------------|-------------|
+| 30s song (turbo, 8 steps) | ~45s | ~25s | ~2s |
+| 30s song (SFT, 32 steps) | ~3 min | ~1.5 min | ~8s |
+| LM reasoning (0.6B) | ~10s | ~5s | ~1s |
+
+### "No module named 'triton'" or "'flash_attn'"
+
+These are CUDA-only. Not needed on macOS. If they show up as import errors, reinstall:
+
+```bash
 uv sync
 ```
 
-### 3. Launch
+### torch.compile errors
 
-#### 🖥️ Gradio Web UI (Recommended)
+`torch.compile` has limited MPS support and is disabled by default in this fork. If you see errors related to it, ensure `compile_model=False` in your configuration.
 
-**Using uv:**
-```bash
-uv run acestep
+### DJ chat says model not loaded
+
+Make sure you initialized the service first. Either:
+- Click "Initialize Service" on the main UI at port 7860
+- Or start with `--init_service True`
+
+The DJ chat and main UI share the same model instance. Initializing on one side makes it available to the other.
+
+### torchao version warning
+
+```
+Skipping import of cpp extensions due to incompatible torch version
 ```
 
-**Using Python directly:**
+This is harmless. It comes from a version mismatch between torchao and the installed PyTorch. Generation works fine.
 
-> **Note:** Make sure to activate your Python environment first:
-> - **Windows portable package**: Use `python_embeded\python.exe` instead of `python`
-> - **Conda environment**: Run `conda activate your_env_name` first
-> - **venv**: Run `source venv/bin/activate` (Linux/Mac) or `venv\Scripts\activate` (Windows) first
-> - **System Python**: Use `python` or `python3` directly
+### Kandinsky autocast warning
 
-```bash
-# Windows portable package
-python_embeded\python.exe acestep\acestep_v15_pipeline.py
-
-# Conda/venv/system Python
-python acestep/acestep_v15_pipeline.py
+```
+CUDA is not available or torch_xla is imported. Disabling autocast.
 ```
 
-Open http://localhost:7860 in your browser. Models will be downloaded automatically on first run.
+This is harmless. It comes from third-party diffusers code that assumes CUDA. It does not affect generation.
 
-#### 🌐 REST API Server
+---
 
-**Using uv:**
-```bash
-uv run acestep-api
+## Architecture
+
+### Inference Pipeline (Apple Silicon)
+
+```
+User Input (caption, lyrics, tags, metadata)
+       |
+       v
+5Hz Language Model (PyTorch on MPS or MLX, bfloat16)
+  - Chain-of-Thought reasoning
+  - Query rewriting
+  - Audio semantic code generation
+       |
+       v
+DiT Decoder (PyTorch on MPS, bfloat16)
+  - Diffusion denoising (8 steps turbo, 32 steps SFT)
+       |
+       v
+VAE Decoder (PyTorch on MPS, tiled decode)
+  - Mel spectrogram to waveform
+       |
+       v
+Audio Output (FLAC / WAV / MP3)
 ```
 
-**Using Python directly:**
+### Backend Fallback Chain
 
-> **Note:** Make sure to activate your Python environment first (see note above).
-
-```bash
-# Windows portable package
-python_embeded\python.exe acestep\api_server.py
-
-# Conda/venv/system Python
-python acestep/api_server.py
+```
+Apple Silicon:   MLX-LM  ->  PyTorch (MPS)  ->  error
+CUDA:            vLLM    ->  PyTorch (CUDA) ->  error
+CPU:             PyTorch (CPU)
 ```
 
-API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for endpoints.
-
-### Command Line Options
-
-**Gradio UI (`acestep`):**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--port` | 7860 | Server port |
-| `--server-name` | 127.0.0.1 | Server address (use `0.0.0.0` for network access) |
-| `--share` | false | Create public Gradio link |
-| `--language` | en | UI language: `en`, `zh`, `ja` |
-| `--init_service` | false | Auto-initialize models on startup |
-| `--init_llm` | auto | LLM initialization: `true` (force), `false` (disable), omit for auto |
-| `--config_path` | auto | DiT model (e.g., `acestep-v15-turbo`, `acestep-v15-turbo-shift3`) |
-| `--lm_model_path` | auto | LM model (e.g., `acestep-5Hz-lm-0.6B`, `acestep-5Hz-lm-1.7B`) |
-| `--offload_to_cpu` | auto | CPU offload (auto-enabled if VRAM < 16GB) |
-| `--download-source` | auto | Model download source: `auto`, `huggingface`, or `modelscope` |
-| `--enable-api` | false | Enable REST API endpoints alongside Gradio UI |
-| `--api-key` | none | API key for API endpoints authentication |
-| `--auth-username` | none | Username for Gradio authentication |
-| `--auth-password` | none | Password for Gradio authentication |
-
-**Examples:**
-
-> **Note for Python users:** Replace `python` with your environment's Python executable:
-> - Windows portable package: `python_embeded\python.exe`
-> - Conda: Activate environment first, then use `python`
-> - venv: Activate environment first, then use `python`
-> - System: Use `python` or `python3`
-
-```bash
-# Public access with Chinese UI
-uv run acestep --server-name 0.0.0.0 --share --language zh
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --server-name 0.0.0.0 --share --language zh
-
-# Pre-initialize models on startup
-uv run acestep --init_service true --config_path acestep-v15-turbo
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --init_service true --config_path acestep-v15-turbo
-
-# Enable API endpoints with authentication
-uv run acestep --enable-api --api-key sk-your-secret-key --port 8001
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --enable-api --api-key sk-your-secret-key --port 8001
-
-# Enable both Gradio auth and API auth
-uv run acestep --enable-api --api-key sk-123456 --auth-username admin --auth-password password
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --enable-api --api-key sk-123456 --auth-username admin --auth-password password
-
-# Use ModelScope as download source
-uv run acestep --download-source modelscope
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --download-source modelscope
-
-# Use HuggingFace Hub as download source
-uv run acestep --download-source huggingface
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --download-source huggingface
-```
-
-### Environment Variables (.env)
-
-For `uv` or Python users, you can configure ACE-Step using environment variables in a `.env` file:
-
-```bash
-# Copy the example file
-cp .env.example .env
-
-# Edit .env with your settings
-```
-
-**Key environment variables:**
-
-| Variable | Values | Description |
-|----------|--------|-------------|
-| `ACESTEP_INIT_LLM` | (empty), `true`, `false` | LLM initialization mode |
-| `ACESTEP_CONFIG_PATH` | model name | DiT model path |
-| `ACESTEP_LM_MODEL_PATH` | model name | LM model path |
-| `ACESTEP_DOWNLOAD_SOURCE` | `auto`, `huggingface`, `modelscope` | Download source |
-| `ACESTEP_API_KEY` | string | API authentication key |
-
-**LLM Initialization (`ACESTEP_INIT_LLM`):**
-
-Processing flow: `GPU Detection (full) → ACESTEP_INIT_LLM Override → Model Loading`
-
-GPU optimizations (offload, quantization, batch limits) are **always applied**. The override only controls whether to attempt LLM loading.
-
-| Value | Behavior |
-|-------|----------|
-| `auto` (or empty) | Use GPU auto-detection result (recommended) |
-| `true` / `1` / `yes` | Force enable LLM after GPU detection (may cause OOM) |
-| `false` / `0` / `no` | Force disable for pure DiT mode, faster generation |
-
-**Example `.env` for different scenarios:**
-
-```bash
-# Auto mode (recommended) - let GPU detection decide
-ACESTEP_INIT_LLM=auto
-
-# Force enable on low VRAM GPU (GPU optimizations still applied)
-ACESTEP_INIT_LLM=true
-ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-0.6B
-
-# Force disable LLM for faster generation
-ACESTEP_INIT_LLM=false
-```
-
-### Development
-
-```bash
-# Add dependencies
-uv add package-name
-uv add --dev package-name
-
-# Update all dependencies
-uv sync --upgrade
-```
-
-## 🎮 Other GPU Support
-
-### Intel GPU
-Currently, we support Intel GPUs.
-- **Tested Device**: Windows laptop with Ultra 9 285H integrated graphics.
-- **Settings**:
-  - `offload` is disabled by default.
-  - `compile` and `quantization` are enabled by default.
-- **Capabilities**: LLM inference is supported (tested with `acestep-5Hz-lm-0.6B`).
-  - *Note*: LLM inference speed might decrease when generating audio longer than 2 minutes.
-  - *Note*: `nanovllm` acceleration for LLM inference is currently NOT supported on Intel GPUs.
-- **Test Environment**: PyTorch 2.8.0 from [Intel Extension for PyTorch](https://pytorch-extension.intel.com/?request=platform).
-- **Intel Discrete GPUs**: Expected to work, but not tested yet as the developer does not have available devices. Waiting for community feedback.
-
-## 📥 Model Download
-
-Models are automatically downloaded from [HuggingFace](https://huggingface.co/ACE-Step/Ace-Step1.5) or [ModelScope](https://modelscope.cn/organization/ACE-Step) on first run. You can also manually download models using the CLI or `huggingface-cli`.
-
-### Download Source Configuration
-
-ACE-Step supports multiple download sources with automatic fallback:
-
-| Source | Description | Configuration |
-|--------|-------------|---------------|
-| **auto** (default) | Automatic detection based on network, selects best source | `--download-source auto` or omit |
-| **modelscope** | Use ModelScope as download source | `--download-source modelscope` |
-| **huggingface** | Use HuggingFace Hub as download source | `--download-source huggingface` |
-
-**How it works:**
-- **Auto mode** (default): Tests Google connectivity. If accessible → HuggingFace Hub; if not → ModelScope
-- **Manual mode**: Uses your specified source, with automatic fallback to alternate source on failure
-- **Fallback protection**: If primary source fails, automatically tries the other source
-
-**Examples:**
-
-> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
-
-```bash
-# Use ModelScope
-uv run acestep --download-source modelscope
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --download-source modelscope
-
-# Use HuggingFace Hub
-uv run acestep --download-source huggingface
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py --download-source huggingface
-
-# Auto-detect (default, no configuration needed)
-uv run acestep
-# Or using Python directly:
-python acestep/acestep_v15_pipeline.py
-```
-
-**For Windows portable package users**, edit `start_gradio_ui.bat` or `start_api_server.bat`:
-
-```batch
-REM Use ModelScope
-set DOWNLOAD_SOURCE=--download-source modelscope
-
-REM Use HuggingFace Hub
-set DOWNLOAD_SOURCE=--download-source huggingface
-
-REM Auto-detect (default)
-set DOWNLOAD_SOURCE=
-```
-
-**For command line users:**
-
-> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
-
-```bash
-# Using uv
-uv run acestep --download-source modelscope
-
-# Using Python directly
-python acestep/acestep_v15_pipeline.py --download-source modelscope
-```
-
-### Automatic Download
-
-When you run `acestep` or `acestep-api`, the system will:
-1. Check if the required models exist in `./checkpoints`
-2. If not found, automatically download them using the configured source (or auto-detect)
-
-### Manual Download with CLI
-
-> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
-
-**Using uv:**
-```bash
-# Download main model (includes everything needed to run)
-uv run acestep-download
-
-# Download all available models (including optional variants)
-uv run acestep-download --all
-
-# Download from ModelScope
-uv run acestep-download --download-source modelscope
-
-# Download from HuggingFace Hub
-uv run acestep-download --download-source huggingface
-
-# Download a specific model
-uv run acestep-download --model acestep-v15-sft
-
-# List all available models
-uv run acestep-download --list
-
-# Download to a custom directory
-uv run acestep-download --dir /path/to/checkpoints
-```
-
-**Using Python directly:**
-```bash
-# Download main model (includes everything needed to run)
-python -m acestep.model_downloader
-
-# Download all available models (including optional variants)
-python -m acestep.model_downloader --all
-
-# Download from ModelScope
-python -m acestep.model_downloader --download-source modelscope
-
-# Download from HuggingFace Hub
-python -m acestep.model_downloader --download-source huggingface
-
-# Download a specific model
-python -m acestep.model_downloader --model acestep-v15-sft
-
-# List all available models
-python -m acestep.model_downloader --list
-
-# Download to a custom directory
-python -m acestep.model_downloader --dir /path/to/checkpoints
-```
-
-### Manual Download with huggingface-cli
-
-You can also use `huggingface-cli` directly:
-
-```bash
-# Download main model (includes vae, Qwen3-Embedding-0.6B, acestep-v15-turbo, acestep-5Hz-lm-1.7B)
-huggingface-cli download ACE-Step/Ace-Step1.5 --local-dir ./checkpoints
-
-# Download optional LM models
-huggingface-cli download ACE-Step/acestep-5Hz-lm-0.6B --local-dir ./checkpoints/acestep-5Hz-lm-0.6B
-huggingface-cli download ACE-Step/acestep-5Hz-lm-4B --local-dir ./checkpoints/acestep-5Hz-lm-4B
-
-# Download optional DiT models
-huggingface-cli download ACE-Step/acestep-v15-base --local-dir ./checkpoints/acestep-v15-base
-huggingface-cli download ACE-Step/acestep-v15-sft --local-dir ./checkpoints/acestep-v15-sft
-huggingface-cli download ACE-Step/acestep-v15-turbo-shift1 --local-dir ./checkpoints/acestep-v15-turbo-shift1
-huggingface-cli download ACE-Step/acestep-v15-turbo-shift3 --local-dir ./checkpoints/acestep-v15-turbo-shift3
-huggingface-cli download ACE-Step/acestep-v15-turbo-continuous --local-dir ./checkpoints/acestep-v15-turbo-continuous
-```
-
-### Available Models
-
-| Model | HuggingFace Repo | Description |
-|-------|------------------|-------------|
-| **Main** | [ACE-Step/Ace-Step1.5](https://huggingface.co/ACE-Step/Ace-Step1.5) | Core components: vae, Qwen3-Embedding-0.6B, acestep-v15-turbo, acestep-5Hz-lm-1.7B |
-| acestep-5Hz-lm-0.6B | [ACE-Step/acestep-5Hz-lm-0.6B](https://huggingface.co/ACE-Step/acestep-5Hz-lm-0.6B) | Lightweight LM model (0.6B params) |
-| acestep-5Hz-lm-4B | [ACE-Step/acestep-5Hz-lm-4B](https://huggingface.co/ACE-Step/acestep-5Hz-lm-4B) | Large LM model (4B params) |
-| acestep-v15-base | [ACE-Step/acestep-v15-base](https://huggingface.co/ACE-Step/acestep-v15-base) | Base DiT model |
-| acestep-v15-sft | [ACE-Step/acestep-v15-sft](https://huggingface.co/ACE-Step/acestep-v15-sft) | SFT DiT model |
-| acestep-v15-turbo-shift1 | [ACE-Step/acestep-v15-turbo-shift1](https://huggingface.co/ACE-Step/acestep-v15-turbo-shift1) | Turbo DiT with shift1 |
-| acestep-v15-turbo-shift3 | [ACE-Step/acestep-v15-turbo-shift3](https://huggingface.co/ACE-Step/acestep-v15-turbo-shift3) | Turbo DiT with shift3 |
-| acestep-v15-turbo-continuous | [ACE-Step/acestep-v15-turbo-continuous](https://huggingface.co/ACE-Step/acestep-v15-turbo-continuous) | Turbo DiT with continuous shift (1-5) |
-
-### 💡 Which Model Should I Choose?
-
-ACE-Step automatically adapts to your GPU's VRAM. Here's a quick guide:
-
-| Your GPU VRAM | Recommended LM Model | Notes |
-|---------------|---------------------|-------|
-| **≤6GB** | None (DiT only) | LM disabled by default to save memory |
-| **6-12GB** | `acestep-5Hz-lm-0.6B` | Lightweight, good balance |
-| **12-16GB** | `acestep-5Hz-lm-1.7B` | Better quality |
-| **≥16GB** | `acestep-5Hz-lm-4B` | Best quality and audio understanding |
-
-> 📖 **For detailed GPU compatibility information** (duration limits, batch sizes, memory optimization), see GPU Compatibility Guide: [English](./docs/en/GPU_COMPATIBILITY.md) | [中文](./docs/zh/GPU_COMPATIBILITY.md) | [日本語](./docs/ja/GPU_COMPATIBILITY.md)
-
-
-## 🚀 Usage
-
-We provide multiple ways to use ACE-Step:
-
-| Method | Description | Documentation |
-|--------|-------------|---------------|
-| 🖥️ **Gradio Web UI** | Interactive web interface for music generation | [Gradio Guide](./docs/en/GRADIO_GUIDE.md) |
-| 🐍 **Python API** | Programmatic access for integration | [Inference API](./docs/en/INFERENCE.md) |
-| 🌐 **REST API** | HTTP-based async API for services | [REST API](./docs/en/API.md) |
-
-**📚 Documentation available in:** [English](./docs/en/) | [中文](./docs/zh/) | [日本語](./docs/ja/)
-
-## 📖 Tutorial
-
-**🎯 Must Read:** Comprehensive guide to ACE-Step 1.5's design philosophy and usage methods.
-
-| Language | Link |
-|----------|------|
-| 🇺🇸 English | [English Tutorial](./docs/en/Tutorial.md) |
-| 🇨🇳 中文 | [中文教程](./docs/zh/Tutorial.md) |
-| 🇯🇵 日本語 | [日本語チュートリアル](./docs/ja/Tutorial.md) |
-
-This tutorial covers:
-- Mental models and design philosophy
-- Model architecture and selection
-- Input control (text and audio)
-- Inference hyperparameters
-- Random factors and optimization strategies
-
-## 🔨 Train
-
-See the **LoRA Training** tab in Gradio UI for one-click training, or check [Gradio Guide - LoRA Training](./docs/en/GRADIO_GUIDE.md#lora-training) for details.
-
-## 🏗️ Architecture
-
-<p align="center">
-    <img src="./assets/ACE-Step_framework.png" width="100%" alt="ACE-Step Framework">
-</p>
-
-## 🦁 Model Zoo
-
-<p align="center">
-    <img src="./assets/model_zoo.png" width="100%" alt="Model Zoo">
-</p>
-
-### DiT Models
-
-| DiT Model | Pre-Training | SFT | RL | CFG | Step | Refer audio | Text2Music | Cover | Repaint | Extract | Lego | Complete | Quality | Diversity | Fine-Tunability | Hugging Face |
-|-----------|:------------:|:---:|:--:|:---:|:----:|:-----------:|:----------:|:-----:|:-------:|:-------:|:----:|:--------:|:-------:|:---------:|:---------------:|--------------|
-| `acestep-v15-base` | ✅ | ❌ | ❌ | ✅ | 50 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | High | Easy | [Link](https://huggingface.co/ACE-Step/acestep-v15-base) |
-| `acestep-v15-sft` | ✅ | ✅ | ❌ | ✅ | 50 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | High | Medium | Easy | [Link](https://huggingface.co/ACE-Step/acestep-v15-sft) |
-| `acestep-v15-turbo` | ✅ | ✅ | ❌ | ❌ | 8 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | Very High | Medium | Medium | [Link](https://huggingface.co/ACE-Step/Ace-Step1.5) |
-| `acestep-v15-turbo-rl` | ✅ | ✅ | ✅ | ❌ | 8 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | Very High | Medium | Medium | To be released |
-
-### LM Models
-
-| LM Model | Pretrain from | Pre-Training | SFT | RL | CoT metas | Query rewrite | Audio Understanding | Composition Capability | Copy Melody | Hugging Face |
-|----------|---------------|:------------:|:---:|:--:|:---------:|:-------------:|:-------------------:|:----------------------:|:-----------:|--------------|
-| `acestep-5Hz-lm-0.6B` | Qwen3-0.6B | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium | Weak | ✅ |
-| `acestep-5Hz-lm-1.7B` | Qwen3-1.7B | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium | Medium | ✅ |
-| `acestep-5Hz-lm-4B` | Qwen3-4B | ✅ | ✅ | ✅ | ✅ | ✅ | Strong | Strong | Strong | ✅ |
-
-## 📜 License & Disclaimer
-
-This project is licensed under [MIT](./LICENSE)
-
-ACE-Step enables original music generation across diverse genres, with applications in creative production, education, and entertainment. While designed to support positive and artistic use cases, we acknowledge potential risks such as unintentional copyright infringement due to stylistic similarity, inappropriate blending of cultural elements, and misuse for generating harmful content. To ensure responsible use, we encourage users to verify the originality of generated works, clearly disclose AI involvement, and obtain appropriate permissions when adapting protected styles or materials. By using ACE-Step, you agree to uphold these principles and respect artistic integrity, cultural diversity, and legal compliance. The authors are not responsible for any misuse of the model, including but not limited to copyright violations, cultural insensitivity, or the generation of harmful content.
-
-🔔 Important Notice  
-The only official website for the ACE-Step project is our GitHub Pages site.    
- We do not operate any other websites.  
-🚫 Fake domains include but are not limited to:
-ac\*\*p.com, a\*\*p.org, a\*\*\*c.org  
-⚠️ Please be cautious. Do not visit, trust, or make payments on any of those sites.
-
-## 🙏 Acknowledgements
-
-This project is co-led by ACE Studio and StepFun.
-
-
-## 📖 Citation
-
-If you find this project useful for your research, please consider citing:
-
-```BibTeX
-@misc{gong2026acestep,
-	title={ACE-Step 1.5: Pushing the Boundaries of Open-Source Music Generation},
-	author={Junmin Gong, Yulin Song, Wenxiao Zhao, Sen Wang, Shengyuan Xu, Jing Guo}, 
-	howpublished={\url{https://github.com/ace-step/ACE-Step-1.5}},
-	year={2026},
-	note={GitHub repository}
-}
-```
+### Files Changed from Upstream
+
+Modified (13 files, +359/-109 lines):
+- `acestep/acestep_v15_pipeline.py` -- DJ chat integration, handler sharing between UI and DJ
+- `acestep/handler.py` -- MPS device support, default model selection
+- `acestep/llm_inference.py` -- MLX auto-detection, MPS-compatible inference, backend fallback
+- `acestep/gpu_config.py` -- System memory detection via `os.sysconf`, MPS tier selection
+- `acestep/dit_alignment_score.py` -- MPS-compatible scoring
+- `acestep/training/trainer.py` -- MPS autocast, training patches
+- `acestep/training/data_module.py` -- Disable pin_memory on MPS
+- `acestep/gradio_ui/interfaces/generation.py` -- Default model selection
+- `acestep/gradio_ui/interfaces/__init__.py` -- DJ mode tab registration
+- `acestep/model_downloader.py` -- Minor fix
+- `scripts/prepare_vae_calibration_data.py` -- MPS device support
+- `pyproject.toml` -- MLX optional dependencies
+- `.gitignore` -- Environment files
+
+New files (5 files, ~2,900 lines):
+- `acestep/device_utils.py` -- Centralized device detection (MPS, CUDA, CPU)
+- `acestep/mlx_lm_backend.py` -- Full MLX-LM backend with auto-conversion and quantization
+- `acestep/dj_chat.py` -- AI DJ chat interface (Gradio)
+- `acestep/dj_mode.py` -- DJ engine, setlist planning, LLM client
+- `acestep/gradio_ui/interfaces/dj_mode.py` -- DJ mode Gradio tab for main UI
+- `app.py` -- HF Spaces entry point
+
+---
+
+## Credits
+
+- [ACE-Step](https://github.com/ACE-Step/ACE-Step-1.5) by StepFun for the original model and codebase
+- [MLX](https://github.com/ml-explore/mlx) by Apple for the Apple Silicon ML framework
+- [PyTorch](https://pytorch.org/) for MPS backend support
+- [Gradio](https://gradio.app/) for the UI framework
+
+This fork is not affiliated with StepFun or the ACE-Step team. It is an independent port for Apple Silicon with additional features.
+
+---
+
+## License
+
+Same license as the upstream ACE-Step 1.5 repository.

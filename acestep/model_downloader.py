@@ -190,7 +190,7 @@ MAIN_MODEL_COMPONENTS = [
 ]
 
 # Default LM model (included in main model)
-DEFAULT_LM_MODEL = "acestep-5Hz-lm-1.7B"
+DEFAULT_LM_MODEL = "acestep-5Hz-lm-4B"
 
 
 def get_project_root() -> Path:

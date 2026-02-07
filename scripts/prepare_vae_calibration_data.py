@@ -59,6 +59,9 @@ def main():
     # Check for XPU
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         device = "xpu"
+    # Check for MPS (Apple Silicon)
+    elif device == "cpu" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
     
     print(f"Using device: {device}")
     vae = vae.to(device)
@@ -106,9 +109,12 @@ def main():
                     
             except Exception as e:
                 print(f"Error encoding chunk {start_idx}-{end_idx} of {audio_file}: {e}")
-                torch.cuda.empty_cache()
-                if device == "xpu":
+                if device == "cuda":
+                    torch.cuda.empty_cache()
+                elif device == "xpu":
                     torch.xpu.empty_cache()
+                elif device == "mps":
+                    torch.mps.empty_cache()
     
     print(f"Collected {len(all_chunks)} chunks of size {chunk_size}.")
     
