@@ -90,6 +90,49 @@ class AceStepHandler:
         self.lora_scale = 1.0  # LoRA influence scale (0-1)
         self._base_decoder = None  # Backup of original decoder
     
+    @staticmethod
+    def _apply_sft_cfg_patch():
+        """Patch SFT model source files to fix CFG doubling bug.
+        
+        The upstream SFT model doubles context_latents_non_cover on every
+        diffusion step after cover_steps, instead of once. This causes
+        exponential tensor growth and a dimension mismatch crash.
+        
+        Must be called BEFORE AutoModel.from_pretrained so the patched
+        source is what gets loaded.
+        """
+        import glob
+        patterns = [
+            os.path.expanduser("~/.cache/huggingface/modules/transformers_modules/acestep_hyphen_v15_hyphen_sft/modeling_acestep_v15_base.py"),
+            os.path.expanduser("~/.cache/huggingface/modules/transformers_modules/*/modeling_acestep_v15_base.py"),
+        ]
+        for pattern in patterns:
+            for filepath in glob.glob(pattern):
+                try:
+                    with open(filepath, 'r') as f:
+                        content = f.read()
+                    if '_non_cover_cfg_applied' in content:
+                        continue  # Already patched
+                    if 'cover_steps' not in content:
+                        continue  # Not the right file
+                    
+                    old_loop = "        with torch.no_grad():\n            for step_idx, (t_curr, t_prev) in enumerate(iterator):"
+                    new_loop = "        _non_cover_cfg_applied = False\n        with torch.no_grad():\n            for step_idx, (t_curr, t_prev) in enumerate(iterator):"
+                    old_guard = "                if step_idx >= cover_steps:\n                    if do_cfg_guidance:"
+                    new_guard = "                if step_idx >= cover_steps:\n                    if do_cfg_guidance and not _non_cover_cfg_applied:"
+                    old_after = "                        context_latents_non_cover = torch.cat([context_latents_non_cover, context_latents_non_cover], dim=0)\n\n                    encoder_hidden_states = encoder_hidden_states_non_cover"
+                    new_after = "                        context_latents_non_cover = torch.cat([context_latents_non_cover, context_latents_non_cover], dim=0)\n                        _non_cover_cfg_applied = True\n\n                    encoder_hidden_states = encoder_hidden_states_non_cover"
+                    
+                    patched = content.replace(old_loop, new_loop).replace(old_guard, new_guard).replace(old_after, new_after)
+                    if patched != content:
+                        with open(filepath, 'w') as f:
+                            f.write(patched)
+                        logger.info(f"[_apply_sft_cfg_patch] Patched: {filepath}")
+                    else:
+                        logger.debug(f"[_apply_sft_cfg_patch] Pattern not found in {filepath}")
+                except Exception as e:
+                    logger.warning(f"[_apply_sft_cfg_patch] Failed to patch {filepath}: {e}")
+
     def get_available_checkpoints(self) -> str:
         """Return project root directory path"""
         # Get project root (handler.py is in acestep/, so go up two levels to project root)
@@ -402,6 +445,9 @@ class AceStepHandler:
                     attn_implementation = "sdpa"
 
                 try:
+                    # Apply SFT CFG fix before loading (patches source files in HF cache)
+                    self._apply_sft_cfg_patch()
+                    
                     logger.info(f"[initialize_service] Attempting to load model with attention implementation: {attn_implementation}")
                     self.model = AutoModel.from_pretrained(
                         acestep_v15_checkpoint_path, 
