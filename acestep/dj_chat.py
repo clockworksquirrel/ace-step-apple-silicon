@@ -552,7 +552,14 @@ def _generate_track_from_plan(
         # Determine task type and reference audio
         task_type = track_data.get("task_type", "text2music")
         ref_audio = track_data.get("reference_audio")
-        cover_strength = track_data.get("audio_cover_strength", 1.0 if task_type == "cover" else 0.3)
+        # Default cover strength: 1.0 for covers, 0.3 for text2music WITH reference audio.
+        # Without reference audio, must be 1.0 to avoid triggering the non-cover CFG path.
+        default_strength = 1.0
+        if task_type == "cover":
+            default_strength = 1.0
+        elif ref_audio and os.path.isfile(str(ref_audio)):
+            default_strength = 0.3  # Style transfer from reference
+        cover_strength = track_data.get("audio_cover_strength", default_strength)
 
         # Use track-level inference steps or fall back to function default
         steps = track_data.get("inference_steps", inference_steps)
