@@ -188,6 +188,37 @@ When outputting JSON with reference audio:
 - `"reference_audio": "USE_UPLOADED"` (system maps to actual file)
 - `"audio_cover_strength": 0.0-1.0` (influence amount)
 - `"task_type": "text2music"` (default) or `"cover"` (for covers)
+- `"src_audio": "USE_UPLOADED"` for source audio in audio-to-audio tasks (repaint, lego, extract, complete)
+
+---
+
+## All Task Types
+
+ACE-Step supports 6 task types. Default is "text2music" for most requests.
+
+| Task Type | What it does | When to use | Required extras |
+|---|---|---|---|
+| `text2music` | Generate from text description | Default for new tracks | None |
+| `cover` | Recreate in a new style | "cover this", "remake in jazz" | reference_audio, audio_cover_strength |
+| `repaint` | Edit a specific time region | "edit from 30s to 45s", "repaint the chorus" | src_audio, repainting_start, repainting_end |
+| `lego` | Layer new tracks on existing audio | "add bass", "layer drums on top" | src_audio, repainting_start, repainting_end |
+| `extract` | Separate stems (vocals/drums/bass/other) | "separate the vocals", "extract stems" | src_audio |
+| `complete` | Extend/continue a track | "extend this", "continue from where it left off" | src_audio |
+
+### Repaint & Lego Details
+- `repainting_start`: Start time in seconds (e.g., 30.0)
+- `repainting_end`: End time in seconds (-1 for "until the end")
+- For repaint: replaces audio in the specified region with new generation
+- For lego: adds a new layer/instrument on top of existing audio in that region
+
+### Extract Details
+- Separates audio into stems: vocals, drums, bass, other
+- Just set task_type to "extract" with src_audio
+- The caption can describe which stem: "Extract vocals", "Isolate the drums"
+
+### Complete Details
+- Continues generating from where the source audio ends
+- Set src_audio to the existing track, and duration to total desired length
 
 ---
 
@@ -196,32 +227,67 @@ When outputting JSON with reference audio:
 The user can control EVERYTHING through natural language. Translate their words:
 
 ### Per-Track Parameters
-| User says | JSON field | Range |
+| User says | JSON field | Range / Values |
 |---|---|---|
-| "120 BPM" / "tempo" | bpm | 60-200 |
+| "120 BPM" / "tempo" | bpm | 30-300 |
 | "D minor" / "key of G" | key | Any standard key |
-| "30 seconds" / "make it long" | duration | 10-600 seconds |
+| "30 seconds" / "make it long" / "10 minutes" | duration | 10-600 seconds |
 | "high energy" / "chill" | energy | 0.0-1.0 |
 | "no vocals" / "instrumental" | instrumental | true/false |
-| "in Spanish" / "Japanese vocals" | vocal_language | en/zh/ja/ko/es/etc |
+| "in Spanish" / "Japanese vocals" | vocal_language | en/zh/ja/ko/es/fr/de/it/pt/ru/uk/pl/nl/sv/fi/el/tr/ar/th/vi/unknown |
 | "lo-fi hip hop" | genre | Any genre string |
 | "use 40% of the sample" | audio_cover_strength | 0.0-1.0 |
+| "waltz time" / "3/4 time" | timesignature | "4/4", "3/4", "2/4", "6/8" |
+| "use seed 42" / "same seed" | seed | integer, -1 for random |
+| "give me 4 variations" / "batch of 3" | batch_size | 1-8 (in settings) |
+
+### Task Type Controls
+| User says | JSON fields |
+|---|---|
+| "make me a track" / (default) | task_type: "text2music" |
+| "cover this in jazz" | task_type: "cover", reference_audio: "USE_UPLOADED" |
+| "edit from 30 to 45 seconds" | task_type: "repaint", src_audio: "USE_UPLOADED", repainting_start: 30, repainting_end: 45 |
+| "repaint the chorus" | task_type: "repaint", src_audio: "USE_UPLOADED", repainting_start/end |
+| "add a bass layer" / "layer drums on top" | task_type: "lego", src_audio: "USE_UPLOADED", repainting_start/end |
+| "separate the vocals" / "extract stems" | task_type: "extract", src_audio: "USE_UPLOADED" |
+| "extend this track" / "continue it" | task_type: "complete", src_audio: "USE_UPLOADED" |
 
 ### Quality Controls
 | User says | JSON field | Value |
 |---|---|---|
 | "higher quality" / "take your time" | inference_steps | 27-50 (slower, better) |
 | "quick draft" / "fast preview" | inference_steps | 4-8 (faster, rougher) |
-| "follow the prompt closely" | guidance_scale | 7.0-15.0 |
+| "follow the prompt closely" | guidance_scale | 7.0-15.0 (non-turbo only) |
 | "go wild" / "surprise me" | guidance_scale | 1.0-3.0 |
 | "make it weird" / "experimental" | Lower guidance + unusual caption |
 
+### Advanced Controls
+| User says | JSON field | Value |
+|---|---|---|
+| "more creative" / "turn up the temperature" | lm_temperature | 1.0-2.0 (higher = more varied) |
+| "more predictable" / "less random" | lm_temperature | 0.1-0.5 (lower = more consistent) |
+| "simple mode" / "just describe it and go" | simple_mode | true (LM handles everything) |
+| "skip the rewrite" / "use my caption exactly" | use_cot_caption | false |
+| "let the AI pick BPM and key" | use_cot_metas | true |
+| "exactly 120 BPM, don't let AI change it" | use_cot_metas | false |
+| "save as mp3" / "wav format" / "flac" | audio_format | "mp3", "wav", "flac" (in settings) |
+| "use adaptive guidance" / "ADG on" | use_adg | true (base model only) |
+| "shift factor 3" | shift | float, default 1.0 |
+
 ### Global Settings (in "settings" key)
+Settings that apply to all tracks go in the "settings" object:
 ```json
 {
   "settings": {
     "inference_steps": 27,
-    "guidance_scale": 5.0
+    "guidance_scale": 5.0,
+    "batch_size": 1,
+    "audio_format": "flac",
+    "seed": -1,
+    "lm_temperature": 0.85,
+    "simple_mode": false,
+    "use_cot_caption": true,
+    "use_cot_metas": true
   },
   "tracks": [...]
 }
@@ -235,7 +301,14 @@ The user can control EVERYTHING through natural language. Translate their words:
 {
   "settings": {
     "inference_steps": 27,
-    "guidance_scale": 5.0
+    "guidance_scale": 5.0,
+    "batch_size": 1,
+    "audio_format": "flac",
+    "seed": -1,
+    "lm_temperature": 0.85,
+    "use_cot_caption": true,
+    "use_cot_metas": true,
+    "simple_mode": false
   },
   "tracks": [
     {
@@ -249,9 +322,19 @@ The user can control EVERYTHING through natural language. Translate their words:
       "instrumental": false,
       "lyrics": "[Verse]\\nLyric line 1\\nLyric line 2\\n\\n[Chorus]\\nChorus line 1\\nChorus line 2",
       "vocal_language": "en",
+      "timesignature": "4/4",
+      "task_type": "text2music",
       "reference_audio": "USE_UPLOADED",
+      "src_audio": "USE_UPLOADED",
       "audio_cover_strength": 0.3,
-      "task_type": "text2music"
+      "repainting_start": 0,
+      "repainting_end": -1,
+      "seed": -1,
+      "use_adg": false,
+      "shift": 1.0,
+      "use_cot_caption": true,
+      "use_cot_metas": true,
+      "lm_temperature": 0.85
     }
   ]
 }
@@ -291,6 +374,10 @@ acknowledge it, add your ideas, and ask if they want to refine before generating
 6. **When in doubt, ask** — better to clarify than assume
 7. **If someone just says "hi" or chats casually, just chat back** — you're a person first, \
 a music tool second
+8. **Only include fields the user specified or that the task requires** — don't add every \
+parameter to every track. Omit what isn't needed so defaults apply cleanly.
+9. **For repaint/lego/extract/complete tasks**, always include `"src_audio": "USE_UPLOADED"` \
+— these tasks require source audio from the user's upload.
 """
 
 # ---------------------------------------------------------------------------
@@ -471,6 +558,28 @@ def _generate_track_from_plan(
         steps = track_data.get("inference_steps", inference_steps)
         guidance = track_data.get("guidance_scale", None)
 
+        # Resolve src_audio — map "USE_UPLOADED" to the actual file
+        src_audio_path = track_data.get("src_audio")
+        if src_audio_path == "USE_UPLOADED":
+            src_audio_path = track_data.get("_resolved_src_audio")  # set by caller
+        if src_audio_path and not os.path.isfile(str(src_audio_path)):
+            src_audio_path = None
+
+        # Resolve simple_mode: LM generates everything from minimal caption
+        simple_mode = track_data.get("simple_mode", False)
+        use_cot_caption = track_data.get("use_cot_caption", True)
+        use_cot_metas = track_data.get("use_cot_metas", True)
+        use_cot_language = track_data.get("use_cot_language", True)
+        if simple_mode:
+            use_cot_caption = True
+            use_cot_metas = True
+            use_cot_language = True
+
+        # Build seed value
+        seed_val = track_data.get("seed", -1)
+        if seed_val is None:
+            seed_val = -1
+
         params = GenerationParams(
             task_type=task_type,
             caption=track_data.get("caption", ""),
@@ -483,6 +592,19 @@ def _generate_track_from_plan(
             inference_steps=steps,
             reference_audio=ref_audio if ref_audio and os.path.isfile(str(ref_audio)) else None,
             audio_cover_strength=cover_strength,
+            # New parameters
+            seed=seed_val,
+            timesignature=track_data.get("timesignature", ""),
+            use_adg=track_data.get("use_adg", False),
+            shift=float(track_data.get("shift", 1.0)),
+            src_audio=src_audio_path,
+            repainting_start=float(track_data.get("repainting_start", 0.0)),
+            repainting_end=float(track_data.get("repainting_end", -1)),
+            # LM parameters
+            use_cot_caption=use_cot_caption,
+            use_cot_metas=use_cot_metas,
+            use_cot_language=use_cot_language,
+            lm_temperature=float(track_data.get("lm_temperature", 0.85)),
         )
 
         # Apply guidance scale if specified
@@ -491,11 +613,18 @@ def _generate_track_from_plan(
         # Use LM thinking if handler has been initialized
         params.thinking = llm_handler is not None and getattr(llm_handler, "llm_initialized", False)
 
+        # Build generation config
+        batch_size = int(track_data.get("batch_size", 1))
+        audio_format = track_data.get("audio_format", "flac")
+        use_random = seed_val == -1
+
         gen_config = GenerationConfig(
-            batch_size=1,
-            use_random_seed=True,
-            audio_format="flac",
+            batch_size=batch_size,
+            use_random_seed=use_random,
+            audio_format=audio_format,
         )
+        if not use_random:
+            gen_config.seeds = [seed_val]
 
         result = generate_music(
             dit_handler=dit_handler,
@@ -679,13 +808,24 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                     interactive=True,
                 )
                 duration_slider = gr.Slider(
-                    minimum=15, maximum=180, value=60, step=5,
+                    minimum=15, maximum=600, value=60, step=5,
                     label="Duration (sec)",
                     interactive=True,
                 )
                 instrumental_toggle = gr.Checkbox(
                     label="Instrumental only",
                     value=False,
+                    interactive=True,
+                )
+                batch_slider = gr.Slider(
+                    minimum=1, maximum=8, value=1, step=1,
+                    label="Batch Size",
+                    interactive=True,
+                )
+                audio_format_dd = gr.Dropdown(
+                    choices=["flac", "wav", "mp3"],
+                    value="flac",
+                    label="Audio Format",
                     interactive=True,
                 )
 
@@ -829,6 +969,8 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
             num_tracks: int,
             duration: int,
             instrumental: bool,
+            batch_size_default: int = 1,
+            audio_format_default: str = "flac",
         ):
             """Generate music from the stored plan. Triggered by Generate button."""
             plan = _shared.get("pending_plan")
@@ -883,11 +1025,33 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                 if track.get("reference_audio") == "USE_UPLOADED" and _shared["ref_audio"]:
                     track["reference_audio"] = _shared["ref_audio"]
 
-                # Apply global settings from DJ
+                # Handle src_audio for repaint/lego/extract/complete
+                if track.get("src_audio") == "USE_UPLOADED" and _shared["ref_audio"]:
+                    track["_resolved_src_audio"] = _shared["ref_audio"]
+
+                # Apply global settings from DJ (cascade from settings to tracks)
                 if settings.get("inference_steps"):
-                    track["inference_steps"] = settings["inference_steps"]
+                    track.setdefault("inference_steps", settings["inference_steps"])
                 if settings.get("guidance_scale"):
-                    track["guidance_scale"] = settings["guidance_scale"]
+                    track.setdefault("guidance_scale", settings["guidance_scale"])
+                if settings.get("batch_size"):
+                    track.setdefault("batch_size", settings["batch_size"])
+                if settings.get("audio_format"):
+                    track.setdefault("audio_format", settings["audio_format"])
+                if settings.get("seed") is not None:
+                    track.setdefault("seed", settings["seed"])
+                if settings.get("lm_temperature") is not None:
+                    track.setdefault("lm_temperature", settings["lm_temperature"])
+                if settings.get("simple_mode") is not None:
+                    track.setdefault("simple_mode", settings["simple_mode"])
+                if settings.get("use_cot_caption") is not None:
+                    track.setdefault("use_cot_caption", settings["use_cot_caption"])
+                if settings.get("use_cot_metas") is not None:
+                    track.setdefault("use_cot_metas", settings["use_cot_metas"])
+
+                # Apply sidebar defaults for batch_size and audio_format
+                track.setdefault("batch_size", batch_size_default)
+                track.setdefault("audio_format", audio_format_default)
 
                 # Status message
                 chat_history = chat_history + [
@@ -910,6 +1074,11 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                 elapsed = time.time() - start
 
                 if audio_path and os.path.isfile(audio_path):
+                    # Determine MIME type from file extension
+                    ext = os.path.splitext(audio_path)[1].lower().lstrip(".")
+                    mime_map = {"flac": "audio/flac", "wav": "audio/wav", "mp3": "audio/mpeg"}
+                    mime_type = mime_map.get(ext, "audio/flac")
+
                     chat_history[-1] = gr.ChatMessage(
                         role="assistant",
                         content=f"🎵 **Track {i + 1}: {track.get('title', 'Untitled')}** ({elapsed:.0f}s)",
@@ -917,7 +1086,7 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                     chat_history = chat_history + [
                         gr.ChatMessage(
                             role="assistant",
-                            content=gr.FileData(path=audio_path, mime_type="audio/flac"),
+                            content=gr.FileData(path=audio_path, mime_type=mime_type),
                         )
                     ]
                 else:
@@ -977,6 +1146,8 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
             num_tracks_slider,
             duration_slider,
             instrumental_toggle,
+            batch_slider,
+            audio_format_dd,
         ]
         generate_btn.click(
             fn=_generate_from_plan,
