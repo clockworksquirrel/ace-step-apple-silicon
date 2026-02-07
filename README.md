@@ -67,7 +67,7 @@ For CUDA systems, the upstream requirements apply. This fork does not change CUD
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/ace-step-apple-silicon.git
+git clone https://github.com/clockworksquirrel/ace-step-apple-silicon.git
 cd ace-step-apple-silicon
 
 # Install dependencies (uv auto-selects Python 3.11)
@@ -89,7 +89,7 @@ except ImportError:
 ### Using pip
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ace-step-apple-silicon.git
+git clone https://github.com/clockworksquirrel/ace-step-apple-silicon.git
 cd ace-step-apple-silicon
 
 python3.11 -m venv .venv
@@ -124,6 +124,8 @@ uv run acestep --server-name 0.0.0.0 --port 7860
 ```
 
 Models are downloaded automatically on first launch when you click "Initialize Service" in the UI. The first download is roughly 5 GB.
+
+**Once the service is initialized, you can do everything from the AI DJ chat.** Open `http://localhost:7861`, describe the music you want in plain English, and the DJ handles all the parameters, generation modes, and settings for you. No need to touch sliders or dropdowns. The main studio UI is there for manual control if you want it, but the DJ chat gives you the full feature set through natural language.
 
 To pre-initialize from the command line (skips the UI button):
 
@@ -167,20 +169,31 @@ Use the "Initialize Service" button (under Service Configuration) to load models
 
 **URL:** `http://localhost:7861`
 
-A conversational interface for music generation. Chat with an AI DJ (powered by Claude or another LLM) to describe what you want, brainstorm ideas, and generate tracks through natural language.
+This is the recommended way to use ACE-Step once the service is initialized. Instead of manually configuring dozens of parameters, just describe what you want in plain language.
+
+The DJ is a collaborative partner, not a form filler. It will discuss ideas with you, ask about the vibe you're going for, suggest genres and arrangements, and help shape the track before anything generates. When the plan is right, tell it to generate and click the Generate button.
+
+**Everything the main studio can do, the DJ chat can do through conversation:**
+- All generation modes (text-to-music, covers, repaint, track separation, multi-track, vocal-to-BGM)
+- Full parameter control (BPM, key, time signature, duration, guidance scale, diffusion steps)
+- Reference audio upload with percentage-based influence ("make it 40% like this track")
+- Batch generation and multi-track setlists
+- LM creativity controls (Chain-of-Thought, simple mode, constrained decoding)
+- Seed control for reproducibility
+- Audio format selection (FLAC, WAV, MP3)
 
 How it works:
-1. You describe the music you want in plain language
-2. The DJ discusses ideas, asks clarifying questions, suggests approaches
-3. When you're ready, tell the DJ to generate and it produces a structured plan
-4. Click the Generate button to run ACE-Step on the plan
+1. Describe what you want ("give me a 90s boom-bap beat, dusty vinyl feel, 92 BPM")
+2. The DJ discusses, refines, and plans with you
+3. When you say "generate it" or "let's go," it builds a structured generation plan
+4. Click the Generate button to run ACE-Step
 5. Audio appears in the chat
 
-The DJ chat supports:
-- Natural language control over all generation parameters (genre, mood, tempo, key, duration, lyrics)
-- Reference audio upload with percentage-based influence control
-- Multi-track setlist planning
+You never need to open the main studio UI if you don't want to. The DJ chat is a complete interface.
+
+The DJ chat also supports:
 - Any LLM provider (OpenRouter, Gemini, Ollama, or compatible OpenAI API)
+- Configurable model and provider via the settings panel
 
 #### Setting up the DJ
 
