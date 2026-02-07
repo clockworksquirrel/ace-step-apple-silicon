@@ -732,8 +732,6 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
             button_secondary_text_color="#c0c0d0",
             shadow_drop="none",
             shadow_drop_lg="none",
-            chatbot_code_background_fill="#0e0e18",
-            chatbot_code_background_fill_dark="#0e0e18",
         ),
         css="""
         /* DJ Ace — Dark Studio Theme */
