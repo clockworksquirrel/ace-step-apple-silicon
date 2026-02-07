@@ -699,34 +699,115 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
     # --- Build the UI ---------------------------------------------------------
 
     with gr.Blocks(
-        title="🎧 DJ Ace — AI Music Director",
-        theme=gr.themes.Monochrome(
-            primary_hue=gr.themes.colors.purple,
-            secondary_hue=gr.themes.colors.violet,
-            neutral_hue=gr.themes.colors.gray,
+        title="DJ Ace — AI Music Director",
+        theme=gr.themes.Base(
+            primary_hue=gr.themes.colors.violet,
+            secondary_hue=gr.themes.colors.purple,
+            neutral_hue=gr.themes.colors.slate,
             font=gr.themes.GoogleFont("Inter"),
+            font_mono=gr.themes.GoogleFont("JetBrains Mono"),
+        ).set(
+            body_background_fill="#0a0a12",
+            body_background_fill_dark="#0a0a12",
+            block_background_fill="#14141e",
+            block_background_fill_dark="#14141e",
+            block_border_width="1px",
+            block_border_color="#252535",
+            block_border_color_dark="#252535",
+            block_label_background_fill="#14141e",
+            block_label_background_fill_dark="#14141e",
+            block_title_text_color="#d0d0e0",
+            block_title_text_color_dark="#d0d0e0",
+            body_text_color="#c0c0d0",
+            body_text_color_dark="#c0c0d0",
+            input_background_fill="#0e0e18",
+            input_background_fill_dark="#0e0e18",
+            input_border_color="#252535",
+            input_border_color_dark="#252535",
+            button_primary_background_fill="#7c3aed",
+            button_primary_background_fill_dark="#7c3aed",
+            button_primary_text_color="#ffffff",
+            button_secondary_background_fill="#1a1a28",
+            button_secondary_background_fill_dark="#1a1a28",
+            button_secondary_text_color="#c0c0d0",
+            shadow_drop="none",
+            shadow_drop_lg="none",
+            chatbot_code_background_fill="#0e0e18",
+            chatbot_code_background_fill_dark="#0e0e18",
         ),
         css="""
-        /* Dark music studio vibe */
+        /* DJ Ace — Dark Studio Theme */
         .gradio-container {
-            max-width: 900px !important;
+            max-width: 1100px !important;
             margin: auto;
         }
         .dj-header {
             text-align: center;
-            padding: 1.5rem 0 0.5rem 0;
+            padding: 1.5rem 0 1rem;
+            border-bottom: 1px solid #252535;
+            margin-bottom: 1rem;
         }
         .dj-header h1 {
-            font-size: 2rem;
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a855f7, #6366f1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             margin-bottom: 0.25rem;
         }
         .dj-header p {
-            opacity: 0.7;
+            color: #7878a0;
             font-size: 1.05rem;
         }
-        /* Tighter sidebar */
+        /* Sidebar */
         .dj-sidebar .gr-group {
             padding: 8px !important;
+        }
+        .dj-sidebar .label-wrap {
+            font-weight: 600 !important;
+        }
+        /* Chat area */
+        .chatbot {
+            border-radius: 12px !important;
+            border: 1px solid #252535 !important;
+        }
+        /* Message input */
+        #component-msg-input textarea {
+            border-radius: 10px !important;
+        }
+        /* Buttons */
+        button.primary {
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            transition: all 0.2s ease !important;
+        }
+        button.primary:hover {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3) !important;
+        }
+        button.secondary {
+            border-radius: 8px !important;
+        }
+        /* Generate button glow */
+        button.secondary:has(> span:first-child) {
+            border: 1px solid #7c3aed40 !important;
+        }
+        /* Settings labels */
+        .dj-sidebar h3 {
+            color: #a0a0c0 !important;
+            font-size: 0.9rem !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.05em !important;
+        }
+        /* Audio player in chat */
+        audio {
+            border-radius: 8px;
+            width: 100%;
+        }
+        /* Dropdown menus */
+        .dropdown-arrow {
+            color: #7c3aed !important;
         }
         """,
     ) as demo:
@@ -734,8 +815,8 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
         # Header
         gr.HTML("""
         <div class="dj-header">
-            <h1>🎧 DJ Ace</h1>
-            <p>AI Music Director — Tell me what you want to hear</p>
+            <h1>DJ Ace</h1>
+            <p>AI Music Director — Describe it, Generate it</p>
         </div>
         """)
 
@@ -745,7 +826,7 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                 chatbot = gr.Chatbot(
                     label="DJ Ace",
                     height=600,
-                    placeholder="Hey! I'm DJ Ace 🎧\n\nLet's build something together. Tell me what you're vibing with — a mood, a genre, an occasion — and we'll brainstorm a set before generating anything.\n\nTry: *\"I'm thinking something chill for a late night session\"*",
+                    placeholder="Hey, I'm DJ Ace.\n\nTell me what you're vibing with — a mood, a genre, a reference — and we'll build something together.\n\nTry: \"chill lo-fi for a late night session\"",
                     avatar_images=(
                         None,  # user avatar (default)
                         None,  # bot avatar (default)
