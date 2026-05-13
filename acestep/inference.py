@@ -6,9 +6,11 @@ designed for third-party integration. It offers both a simplified API and
 backward-compatible Gradio UI support.
 """
 
+import json
 import math
 import os
 import tempfile
+from datetime import datetime, timezone
 from typing import Optional, Union, List, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from loguru import logger
@@ -654,6 +656,26 @@ def generate_music(
                 except Exception as e:
                     logger.error(f"[generate_music] Failed to save audio file: {e}")
                     audio_path = ""  # Fallback to empty path
+
+            # Save sidecar metadata JSON next to the audio file so the prompt,
+            # lyrics, seed and other parameters that produced this audio remain
+            # recoverable. Format matches what the main UI's "Save" path writes
+            # (audio_params at top level), so the resulting file is directly
+            # loadable via the Studio UI's "Load File" upload to reproduce the
+            # generation. A few extra provenance keys (_audio_file, _sample_rate,
+            # _generated_at) are added as siblings — load_metadata ignores them.
+            # Best-effort: a write failure here must not abort generation.
+            if audio_path and save_dir is not None:
+                try:
+                    sidecar_path = os.path.join(save_dir, f"{audio_key}.json")
+                    sidecar = dict(audio_params)  # top-level params for load_metadata
+                    sidecar["_audio_file"] = os.path.basename(audio_path)
+                    sidecar["_sample_rate"] = sample_rate
+                    sidecar["_generated_at"] = datetime.now(timezone.utc).isoformat()
+                    with open(sidecar_path, "w", encoding="utf-8") as f:
+                        json.dump(sidecar, f, indent=2, default=str, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"[generate_music] Failed to write sidecar metadata: {e}")
 
             audio_dict = {
                 "path": audio_path or "",  # File path (saved here, not in handler)
