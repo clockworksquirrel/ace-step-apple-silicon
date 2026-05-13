@@ -20,25 +20,57 @@ from acestep.gpu_config import get_global_gpu_config
 def clamp_duration_to_gpu_limit(duration_value: Optional[float], llm_handler=None) -> Optional[float]:
     """
     Clamp duration value to GPU memory limit.
-    
+
     Args:
         duration_value: Duration in seconds (can be None or -1 for no limit)
         llm_handler: LLM handler instance (to check if LM is initialized)
-        
+
     Returns:
         Clamped duration value, or original value if within limits
     """
     if duration_value is None or duration_value <= 0:
         return duration_value
-    
+
     gpu_config = get_global_gpu_config()
     lm_initialized = llm_handler.llm_initialized if llm_handler else False
     max_duration = gpu_config.max_duration_with_lm if lm_initialized else gpu_config.max_duration_without_lm
-    
+
     if duration_value > max_duration:
         return float(max_duration)
-    
+
     return duration_value
+
+
+def clamp_inference_steps_to_model_limit(
+    inference_steps_value: Optional[int],
+    dit_handler=None,
+) -> Tuple[Optional[int], bool]:
+    """Clamp inference_steps to the currently-loaded model's slider max.
+
+    Turbo models cap inference_steps at 20 in the UI; base models cap at 200.
+    A sidecar produced under one model (e.g. base) can carry a value the
+    other model's slider rejects (e.g. 27 > 20 for turbo), which surfaces as
+    a confusing "Value X is greater than maximum value Y" error at Generate
+    time. Clamp on load instead so the user can still proceed and just sees
+    a warning.
+
+    Returns:
+        (clamped_value, was_clamped) — was_clamped lets the caller surface
+        a UI warning. If we can't determine the model (handler not ready),
+        return the value untouched.
+    """
+    if inference_steps_value is None or inference_steps_value <= 0:
+        return inference_steps_value, False
+    if dit_handler is None or getattr(dit_handler, "model", None) is None:
+        return inference_steps_value, False
+    try:
+        is_turbo = dit_handler.is_turbo_model()
+    except Exception:
+        return inference_steps_value, False
+    max_steps = 20 if is_turbo else 200
+    if inference_steps_value > max_steps:
+        return int(max_steps), True
+    return inference_steps_value, False
 
 
 def parse_and_validate_timesteps(
@@ -91,12 +123,14 @@ def parse_and_validate_timesteps(
     return timesteps, False, ""
 
 
-def load_metadata(file_obj, llm_handler=None):
+def load_metadata(file_obj, llm_handler=None, dit_handler=None):
     """Load generation parameters from a JSON file
-    
+
     Args:
         file_obj: Uploaded file object
         llm_handler: LLM handler instance (optional, for GPU duration limit check)
+        dit_handler: DiT handler (optional, for clamping inference_steps to
+            the loaded model's slider max — turbo=20, base=200)
     """
     if file_obj is None:
         gr.Warning(t("messages.no_file_selected"))
@@ -145,6 +179,18 @@ def load_metadata(file_obj, llm_handler=None):
         
         batch_size = metadata.get('batch_size', 2)
         inference_steps = metadata.get('inference_steps', 8)
+        # Clamp inference_steps to the currently-loaded model's slider max
+        # so a sidecar produced under a different model (e.g. base, 27 steps)
+        # doesn't trip the turbo slider's max=20 validation at Generate time.
+        inference_steps, _steps_clamped = clamp_inference_steps_to_model_limit(
+            inference_steps, dit_handler
+        )
+        if _steps_clamped:
+            gr.Warning(
+                f"Inference steps clamped to {inference_steps} — the loaded "
+                f"sidecar requested more than the current model allows. "
+                f"Switch to the model used originally for an exact match."
+            )
         guidance_scale = metadata.get('guidance_scale', 7.0)
         seed = metadata.get('seed', '-1')
         random_seed = False  # Always set to False when loading to enable reproducibility with saved seed
