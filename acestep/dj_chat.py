@@ -1236,8 +1236,10 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                     )
                 yield chat_history
 
-            # Clear the pending plan
-            _shared["pending_plan"] = None
+            # Keep the pending plan around so the user can hit Generate again
+            # on the same locked-in setlist (useful for reproducibility tests).
+            # The plan is overwritten when the LLM emits a new JSON block on
+            # the next lock-in, and cleared explicitly by the Clear button.
 
             chat_history = chat_history + [
                 gr.ChatMessage(
