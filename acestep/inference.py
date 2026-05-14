@@ -630,6 +630,38 @@ def generate_music(
             if lm_generated_audio_codes_list and idx < len(lm_generated_audio_codes_list):
                 audio_params["audio_codes"] = lm_generated_audio_codes_list[idx]
 
+            # Capture the FINAL post-CoT values that actually went to the DiT,
+            # not the user's raw input. When use_cot_caption/language/metas is
+            # True, the LM rewrites caption / vocal_language / bpm / key /
+            # time_signature / duration / lyrics before they reach the DiT.
+            # The sidecar was previously saving the user input, so loading it
+            # back with CoT disabled fed the DiT *different* conditioning than
+            # the original run — same audio_codes, different text → different
+            # song. Preserve the originals under _input_* for the record.
+            if dit_input_caption != base_params_dict.get("caption"):
+                audio_params["_input_caption"] = base_params_dict.get("caption", "")
+            audio_params["caption"] = dit_input_caption
+            if dit_input_lyrics != base_params_dict.get("lyrics"):
+                audio_params["_input_lyrics"] = base_params_dict.get("lyrics", "")
+            audio_params["lyrics"] = dit_input_lyrics
+            if dit_input_vocal_language != base_params_dict.get("vocal_language"):
+                audio_params["_input_vocal_language"] = base_params_dict.get("vocal_language", "")
+            audio_params["vocal_language"] = dit_input_vocal_language
+            # Resolved metadata: these get updated by _update_metadata_from_lm
+            # when use_cot_metas is True and the user left the field blank.
+            if bpm != base_params_dict.get("bpm"):
+                audio_params["_input_bpm"] = base_params_dict.get("bpm")
+            audio_params["bpm"] = bpm
+            if key_scale != base_params_dict.get("keyscale"):
+                audio_params["_input_keyscale"] = base_params_dict.get("keyscale")
+            audio_params["keyscale"] = key_scale
+            if time_signature != base_params_dict.get("timesignature"):
+                audio_params["_input_timesignature"] = base_params_dict.get("timesignature")
+            audio_params["timesignature"] = time_signature
+            if audio_duration != base_params_dict.get("duration"):
+                audio_params["_input_duration"] = base_params_dict.get("duration")
+            audio_params["duration"] = audio_duration
+
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")
             sample_rate = dit_audio.get("sample_rate", 48000)
