@@ -556,6 +556,59 @@ def generate_music(
 
         # Phase 2: DiT music generation
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation
+
+        # === REPRO DEBUG: log every DiT arg with a stable hash ===
+        # Enable by setting ACESTEP_REPRO_DEBUG=1. Two runs with the same
+        # sidecar should produce identical lines; if any DIT_ARG line differs,
+        # we've found the leak.
+        if os.environ.get("ACESTEP_REPRO_DEBUG"):
+            try:
+                _dit_args = {
+                    "captions": dit_input_caption,
+                    "lyrics": dit_input_lyrics,
+                    "bpm": bpm,
+                    "key_scale": key_scale,
+                    "time_signature": time_signature,
+                    "vocal_language": dit_input_vocal_language,
+                    "inference_steps": params.inference_steps,
+                    "guidance_scale": params.guidance_scale,
+                    "use_random_seed": config.use_random_seed,
+                    "seed": seed_for_generation,
+                    "reference_audio": params.reference_audio,
+                    "audio_duration": audio_duration,
+                    "batch_size": config.batch_size if config.batch_size is not None else 1,
+                    "src_audio": params.src_audio,
+                    "audio_code_string": audio_code_string_to_use,
+                    "repainting_start": params.repainting_start,
+                    "repainting_end": params.repainting_end,
+                    "instruction": params.instruction,
+                    "audio_cover_strength": params.audio_cover_strength,
+                    "task_type": params.task_type,
+                    "use_adg": params.use_adg,
+                    "cfg_interval_start": params.cfg_interval_start,
+                    "cfg_interval_end": params.cfg_interval_end,
+                    "shift": params.shift,
+                    "infer_method": params.infer_method,
+                    "timesteps": params.timesteps,
+                }
+                import hashlib as _hashlib
+                def _hv(v):
+                    if v is None:
+                        return f"None"
+                    if isinstance(v, (str, int, float, bool)):
+                        return f"{type(v).__name__}:{v!r}"
+                    if isinstance(v, (list, tuple)):
+                        s = json.dumps(v, default=str, sort_keys=False)
+                        return f"{type(v).__name__}[{len(v)}]:sha={_hashlib.sha256(s.encode()).hexdigest()[:16]}"
+                    s = repr(v)
+                    return f"{type(v).__name__}:sha={_hashlib.sha256(s.encode()).hexdigest()[:16]}:repr_head={s[:40]!r}"
+                logger.warning("===== DIT_ARGS (inference.py before dit_handler.generate_music) =====")
+                for _k, _v in _dit_args.items():
+                    logger.warning(f"DIT_ARG  {_k}: {_hv(_v)}")
+                logger.warning("===== END DIT_ARGS =====")
+            except Exception as _e:
+                logger.warning(f"DIT_ARG logging failed: {_e}")
+
         result = dit_handler.generate_music(
             captions=dit_input_caption,
             lyrics=dit_input_lyrics,

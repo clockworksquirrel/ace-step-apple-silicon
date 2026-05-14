@@ -2396,6 +2396,34 @@ class AceStepHandler:
         if timesteps is not None:
             generate_kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32)
         logger.info("[service_generate] Generating audio...")
+
+        # === REPRO DEBUG: hash every tensor/value going into the model ===
+        # Enable by setting ACESTEP_REPRO_DEBUG=1. If these hashes match between
+        # two runs but the audio differs, the model itself is non-deterministic.
+        # If a hash differs, that input is the leak.
+        import os as _os
+        if _os.environ.get("ACESTEP_REPRO_DEBUG"):
+            try:
+                import hashlib as _hashlib
+                def _ten_hash(t):
+                    if t is None:
+                        return "None"
+                    if isinstance(t, torch.Tensor):
+                        try:
+                            b = t.detach().cpu().to(torch.float32).contiguous().numpy().tobytes()
+                            return f"Tensor{list(t.shape)}/{t.dtype}/dev={t.device}/sha={_hashlib.sha256(b).hexdigest()[:16]}"
+                        except Exception as _e:
+                            return f"Tensor<hash-failed: {_e}>"
+                    if isinstance(t, (list, tuple)):
+                        return f"{type(t).__name__}[{len(t)}]/{[_ten_hash(x) for x in t][:4]}"
+                    return f"{type(t).__name__}:{t!r}"
+                logger.warning("===== MODEL_ARGS (handler.py before self.model.generate_audio) =====")
+                for _k in sorted(generate_kwargs.keys()):
+                    logger.warning(f"MODEL_ARG  {_k}: {_ten_hash(generate_kwargs[_k])}")
+                logger.warning("===== END MODEL_ARGS =====")
+            except Exception as _e:
+                logger.warning(f"MODEL_ARG logging failed: {_e}")
+
         with self._load_model_context("model"):
             # Prepare condition tensors first (for LRC timestamp generation)
             encoder_hidden_states, encoder_attention_mask, context_latents = self.model.prepare_condition(
