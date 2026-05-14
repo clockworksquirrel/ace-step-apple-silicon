@@ -753,23 +753,22 @@ def update_audio_uploads_accordion(reference_audio, src_audio):
 def handle_instrumental_checkbox(instrumental_checked, current_lyrics):
     """
     Handle instrumental checkbox changes.
-    When checked: if no lyrics, fill with [Instrumental]
-    When unchecked: if lyrics is [Instrumental], clear it
+
+    PREVIOUS BEHAVIOR (REMOVED): auto-fill empty lyrics with "[Instrumental]"
+    when checked, auto-clear "[Instrumental]" when unchecked. That auto-fill
+    was a UX convenience but it was firing during sidecar load, overwriting
+    the just-loaded lyrics value (e.g. empty string from a DJ sidecar) with
+    "[Instrumental]" — silently changing the DiT's text conditioning input
+    between the original generation and the reproduction. This was a real
+    reproduction-breaking bug.
+
+    The checkbox is now a pure hint. The model's instrumental interpretation
+    is derived from the lyrics content at generation time (see
+    results_handlers.generate_with_progress), so the checkbox no longer needs
+    to mutate the lyrics field. If the user wants "[Instrumental]" in lyrics,
+    they can type it directly.
     """
-    if instrumental_checked:
-        # If checked and no lyrics, fill with [Instrumental]
-        if not current_lyrics or not current_lyrics.strip():
-            return "[Instrumental]"
-        else:
-            # Has lyrics, don't change
-            return current_lyrics
-    else:
-        # If unchecked and lyrics is exactly [Instrumental], clear it
-        if current_lyrics and current_lyrics.strip() == "[Instrumental]":
-            return ""
-        else:
-            # Has other lyrics, don't change
-            return current_lyrics
+    return current_lyrics
 
 
 def handle_simple_instrumental_change(is_instrumental: bool):
