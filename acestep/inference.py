@@ -669,6 +669,15 @@ def generate_music(
                 try:
                     sidecar_path = os.path.join(save_dir, f"{audio_key}.json")
                     sidecar = dict(audio_params)  # top-level params for load_metadata
+                    # Config-level fields that don't live on GenerationParams but
+                    # the Studio UI's Load File expects at the top level so it
+                    # can restore batch size, audio format, etc. rather than
+                    # resetting them to UI defaults.
+                    sidecar["audio_format"] = audio_format
+                    if config is not None:
+                        sidecar["batch_size"] = config.batch_size
+                        sidecar["allow_lm_batch"] = config.allow_lm_batch
+                        sidecar["lm_batch_chunk_size"] = config.lm_batch_chunk_size
                     sidecar["_audio_file"] = os.path.basename(audio_path)
                     sidecar["_sample_rate"] = sample_rate
                     sidecar["_generated_at"] = datetime.now(timezone.utc).isoformat()

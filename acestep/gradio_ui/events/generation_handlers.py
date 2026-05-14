@@ -219,7 +219,19 @@ def load_metadata(file_obj, llm_handler=None, dit_handler=None):
         if custom_timesteps is None:
             custom_timesteps = ''
         instrumental = metadata.get('instrumental', False)  # Added: read instrumental
-        
+
+        # When the sidecar contains pre-resolved audio_codes (typical for any
+        # sidecar produced by a thinking-on generation), default to bypassing
+        # the LM on reload: the saved codes and resolved caption/metas are the
+        # outputs of the original LM run, so re-running CoT regenerates them
+        # non-deterministically and breaks reproduction. The user can re-enable
+        # any of these checkboxes after load if they want fresh LM output.
+        if isinstance(audio_codes, str) and audio_codes.strip():
+            think = False
+            use_cot_caption = False
+            use_cot_metas = False
+            use_cot_language = False
+
         gr.Info(t("messages.params_loaded", filename=os.path.basename(filepath)))
         
         return (
