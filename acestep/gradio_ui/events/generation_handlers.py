@@ -233,13 +233,26 @@ def load_metadata(file_obj, llm_handler=None, dit_handler=None):
             use_cot_language = False
 
         gr.Info(t("messages.params_loaded", filename=os.path.basename(filepath)))
-        
+
+        # Session-level UI preferences that we save in the sidecar for the
+        # record but do not restore on Load — the user keeps whatever they had
+        # set in the current session. These aren't "song content" so reloading
+        # them would feel like the sidecar was overriding the user's chosen
+        # output preferences.
+        #
+        # Heads up for reproduction: batch_size affects numerical accumulation
+        # order in the model, so a sidecar generated at batch_size=N will not
+        # bit-reproduce at batch_size=M. If exact reproduction matters, the
+        # user should manually match the batch_size shown in the sidecar.
         return (
             task_type, captions, lyrics, vocal_language, bpm, key_scale, time_signature,
-            audio_duration, batch_size, inference_steps, guidance_scale, seed, random_seed,
+            audio_duration,
+            gr.update(),  # batch_size_input — session pref, don't overwrite
+            inference_steps, guidance_scale, seed, random_seed,
             use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
             custom_timesteps,  # Added: custom_timesteps (between infer_method and audio_format)
-            audio_format, lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
+            gr.update(),  # audio_format — session pref, don't overwrite
+            lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
             use_cot_metas, use_cot_caption, use_cot_language, audio_cover_strength,
             think, audio_codes, repainting_start, repainting_end,
             track_name, complete_track_classes, instrumental,
