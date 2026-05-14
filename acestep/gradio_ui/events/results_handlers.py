@@ -544,7 +544,16 @@ def generate_with_progress(
         audio_codes=text2music_audio_code_string if not think_checkbox else "",
         caption=captions or "",
         lyrics=lyrics or "",
-        instrumental=False,
+        # Derive instrumental from lyrics content rather than hardcoding False.
+        # The instrumental checkbox in the UI works by setting lyrics to either
+        # "[Instrumental]" (when checked) or "" (when unchecked), so the lyrics
+        # field is the source of truth. The previous hardcoded False meant the
+        # LM always saw a "vocals possible" signal, which broke reproduction of
+        # DJ Ace sidecars that recorded instrumental=True with empty lyrics.
+        instrumental=(
+            not (lyrics or "").strip()
+            or (lyrics or "").strip() == "[Instrumental]"
+        ),
         vocal_language=vocal_language,
         bpm=bpm,
         keyscale=key_scale,
