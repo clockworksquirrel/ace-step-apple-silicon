@@ -544,7 +544,16 @@ def generate_with_progress(
         audio_codes=text2music_audio_code_string if not think_checkbox else "",
         caption=captions or "",
         lyrics=lyrics or "",
-        instrumental=False,
+        # Derive instrumental from lyrics content rather than hardcoding False.
+        # The instrumental checkbox in the UI works by setting lyrics to either
+        # "[Instrumental]" (when checked) or "" (when unchecked), so the lyrics
+        # field is the source of truth. The previous hardcoded False meant the
+        # LM always saw a "vocals possible" signal, which broke reproduction of
+        # DJ Ace sidecars that recorded instrumental=True with empty lyrics.
+        instrumental=(
+            not (lyrics or "").strip()
+            or (lyrics or "").strip() == "[Instrumental]"
+        ),
         vocal_language=vocal_language,
         bpm=bpm,
         keyscale=key_scale,
@@ -700,8 +709,27 @@ def generate_with_progress(
             json_path = os.path.join(temp_dir, f"{key}.json").replace("\\", "/")
             audio_path = os.path.join(temp_dir, f"{key}.{audio_format}").replace("\\", "/")
             save_audio(audio_data=audio_tensor, output_path=audio_path, sample_rate=sample_rate, format=audio_format, channels_first=True)
+            # Match the sidecar shape written by inference.py:generate_music:
+            # add the config-level fields (audio_format, batch_size, etc.) and
+            # the _provenance keys so that sidecars written by the Studio UI
+            # round-trip cleanly through load_metadata just like ones written
+            # by DJ Ace or the CLI. Without this, Studio-generated sidecars
+            # were missing audio_format / batch_size and the loader couldn't
+            # restore the original output format.
+            sidecar = dict(audio_params)
+            sidecar["audio_format"] = audio_format
+            sidecar["batch_size"] = int(batch_size_input) if batch_size_input else 1
+            sidecar["allow_lm_batch"] = bool(allow_lm_batch)
+            sidecar["lm_batch_chunk_size"] = int(lm_batch_chunk_size) if lm_batch_chunk_size else 8
+            sidecar["_audio_file"] = os.path.basename(audio_path)
+            sidecar["_sample_rate"] = sample_rate
+            try:
+                from datetime import datetime, timezone as _tz
+                sidecar["_generated_at"] = datetime.now(_tz.utc).isoformat()
+            except Exception:
+                pass
             with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(audio_params, f, indent=2, ensure_ascii=False)
+                json.dump(sidecar, f, indent=2, default=str, ensure_ascii=False)
             audio_outputs[i] = audio_path
             all_audio_paths.append(audio_path)
             all_audio_paths.append(json_path)

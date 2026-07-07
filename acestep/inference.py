@@ -6,9 +6,11 @@ designed for third-party integration. It offers both a simplified API and
 backward-compatible Gradio UI support.
 """
 
+import json
 import math
 import os
 import tempfile
+from datetime import datetime, timezone
 from typing import Optional, Union, List, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from loguru import logger
@@ -554,6 +556,59 @@ def generate_music(
 
         # Phase 2: DiT music generation
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation
+
+        # === REPRO DEBUG: log every DiT arg with a stable hash ===
+        # Enable by setting ACESTEP_REPRO_DEBUG=1. Two runs with the same
+        # sidecar should produce identical lines; if any DIT_ARG line differs,
+        # we've found the leak.
+        if os.environ.get("ACESTEP_REPRO_DEBUG"):
+            try:
+                _dit_args = {
+                    "captions": dit_input_caption,
+                    "lyrics": dit_input_lyrics,
+                    "bpm": bpm,
+                    "key_scale": key_scale,
+                    "time_signature": time_signature,
+                    "vocal_language": dit_input_vocal_language,
+                    "inference_steps": params.inference_steps,
+                    "guidance_scale": params.guidance_scale,
+                    "use_random_seed": config.use_random_seed,
+                    "seed": seed_for_generation,
+                    "reference_audio": params.reference_audio,
+                    "audio_duration": audio_duration,
+                    "batch_size": config.batch_size if config.batch_size is not None else 1,
+                    "src_audio": params.src_audio,
+                    "audio_code_string": audio_code_string_to_use,
+                    "repainting_start": params.repainting_start,
+                    "repainting_end": params.repainting_end,
+                    "instruction": params.instruction,
+                    "audio_cover_strength": params.audio_cover_strength,
+                    "task_type": params.task_type,
+                    "use_adg": params.use_adg,
+                    "cfg_interval_start": params.cfg_interval_start,
+                    "cfg_interval_end": params.cfg_interval_end,
+                    "shift": params.shift,
+                    "infer_method": params.infer_method,
+                    "timesteps": params.timesteps,
+                }
+                import hashlib as _hashlib
+                def _hv(v):
+                    if v is None:
+                        return f"None"
+                    if isinstance(v, (str, int, float, bool)):
+                        return f"{type(v).__name__}:{v!r}"
+                    if isinstance(v, (list, tuple)):
+                        s = json.dumps(v, default=str, sort_keys=False)
+                        return f"{type(v).__name__}[{len(v)}]:sha={_hashlib.sha256(s.encode()).hexdigest()[:16]}"
+                    s = repr(v)
+                    return f"{type(v).__name__}:sha={_hashlib.sha256(s.encode()).hexdigest()[:16]}:repr_head={s[:40]!r}"
+                logger.warning("===== DIT_ARGS (inference.py before dit_handler.generate_music) =====")
+                for _k, _v in _dit_args.items():
+                    logger.warning(f"DIT_ARG  {_k}: {_hv(_v)}")
+                logger.warning("===== END DIT_ARGS =====")
+            except Exception as _e:
+                logger.warning(f"DIT_ARG logging failed: {_e}")
+
         result = dit_handler.generate_music(
             captions=dit_input_caption,
             lyrics=dit_input_lyrics,
@@ -628,6 +683,38 @@ def generate_music(
             if lm_generated_audio_codes_list and idx < len(lm_generated_audio_codes_list):
                 audio_params["audio_codes"] = lm_generated_audio_codes_list[idx]
 
+            # Capture the FINAL post-CoT values that actually went to the DiT,
+            # not the user's raw input. When use_cot_caption/language/metas is
+            # True, the LM rewrites caption / vocal_language / bpm / key /
+            # time_signature / duration / lyrics before they reach the DiT.
+            # The sidecar was previously saving the user input, so loading it
+            # back with CoT disabled fed the DiT *different* conditioning than
+            # the original run — same audio_codes, different text → different
+            # song. Preserve the originals under _input_* for the record.
+            if dit_input_caption != base_params_dict.get("caption"):
+                audio_params["_input_caption"] = base_params_dict.get("caption", "")
+            audio_params["caption"] = dit_input_caption
+            if dit_input_lyrics != base_params_dict.get("lyrics"):
+                audio_params["_input_lyrics"] = base_params_dict.get("lyrics", "")
+            audio_params["lyrics"] = dit_input_lyrics
+            if dit_input_vocal_language != base_params_dict.get("vocal_language"):
+                audio_params["_input_vocal_language"] = base_params_dict.get("vocal_language", "")
+            audio_params["vocal_language"] = dit_input_vocal_language
+            # Resolved metadata: these get updated by _update_metadata_from_lm
+            # when use_cot_metas is True and the user left the field blank.
+            if bpm != base_params_dict.get("bpm"):
+                audio_params["_input_bpm"] = base_params_dict.get("bpm")
+            audio_params["bpm"] = bpm
+            if key_scale != base_params_dict.get("keyscale"):
+                audio_params["_input_keyscale"] = base_params_dict.get("keyscale")
+            audio_params["keyscale"] = key_scale
+            if time_signature != base_params_dict.get("timesignature"):
+                audio_params["_input_timesignature"] = base_params_dict.get("timesignature")
+            audio_params["timesignature"] = time_signature
+            if audio_duration != base_params_dict.get("duration"):
+                audio_params["_input_duration"] = base_params_dict.get("duration")
+            audio_params["duration"] = audio_duration
+
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")
             sample_rate = dit_audio.get("sample_rate", 48000)
@@ -654,6 +741,35 @@ def generate_music(
                 except Exception as e:
                     logger.error(f"[generate_music] Failed to save audio file: {e}")
                     audio_path = ""  # Fallback to empty path
+
+            # Save sidecar metadata JSON next to the audio file so the prompt,
+            # lyrics, seed and other parameters that produced this audio remain
+            # recoverable. Format matches what the main UI's "Save" path writes
+            # (audio_params at top level), so the resulting file is directly
+            # loadable via the Studio UI's "Load File" upload to reproduce the
+            # generation. A few extra provenance keys (_audio_file, _sample_rate,
+            # _generated_at) are added as siblings — load_metadata ignores them.
+            # Best-effort: a write failure here must not abort generation.
+            if audio_path and save_dir is not None:
+                try:
+                    sidecar_path = os.path.join(save_dir, f"{audio_key}.json")
+                    sidecar = dict(audio_params)  # top-level params for load_metadata
+                    # Config-level fields that don't live on GenerationParams but
+                    # the Studio UI's Load File expects at the top level so it
+                    # can restore batch size, audio format, etc. rather than
+                    # resetting them to UI defaults.
+                    sidecar["audio_format"] = audio_format
+                    if config is not None:
+                        sidecar["batch_size"] = config.batch_size
+                        sidecar["allow_lm_batch"] = config.allow_lm_batch
+                        sidecar["lm_batch_chunk_size"] = config.lm_batch_chunk_size
+                    sidecar["_audio_file"] = os.path.basename(audio_path)
+                    sidecar["_sample_rate"] = sample_rate
+                    sidecar["_generated_at"] = datetime.now(timezone.utc).isoformat()
+                    with open(sidecar_path, "w", encoding="utf-8") as f:
+                        json.dump(sidecar, f, indent=2, default=str, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"[generate_music] Failed to write sidecar metadata: {e}")
 
             audio_dict = {
                 "path": audio_path or "",  # File path (saved here, not in handler)

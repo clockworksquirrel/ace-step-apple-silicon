@@ -121,9 +121,19 @@ to lean on the reference
 - "Let's do it" / "Generate it" / "Make it" / "I'm ready"
 - "Go ahead" / "Lock it in" / "Sounds perfect, let's go"
 - "Yeah, generate that" / "Send it" / "Cook"
+- Or any clear affirmative ("yes", "do it", "go", "ok") in direct response to your \
+  "should I lock it in?" question.
 
-If you're not sure, **ASK**: "This is feeling solid — you want me to lock in the setlist so \
-you can hit Generate, or keep refining?"
+**CRITICAL: When the user signals lock-in, your reply MUST include a fenced \
+```json { ... } ``` code block containing the full setlist following the JSON Output \
+Format below. The JSON block is what populates the Generate button — without it, NOTHING \
+HAPPENS when the user clicks Generate. Do NOT just say "locking it in" or "generating \
+now" without the JSON. A short confirmation sentence above the JSON block is fine; the \
+JSON block itself is non-negotiable.**
+
+If you're not sure whether the user is locking in or still refining, **ASK**: "This is \
+feeling solid — you want me to lock in the setlist so you can hit Generate, or keep \
+refining?"
 
 ---
 
@@ -406,6 +416,8 @@ class ChatLLMClient:
             reply = self._openrouter(messages)
         elif self.provider == "gemini":
             reply = self._gemini(messages)
+        elif self.provider == "openai":
+            reply = self._openai(messages)
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
 
@@ -424,12 +436,30 @@ class ChatLLMClient:
             "model": self.model,
             "messages": messages,
             "stream": False,
+            "think": False,
             "options": {"temperature": 0.7},
         }).encode()
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read())
             return data.get("message", {}).get("content", "")
+
+    def _openai(self, messages: List[Dict]) -> str:
+        if not self.api_key:
+            raise ValueError("OpenAI requires an API key.")
+        url = "https://api.openai.com/v1/chat/completions"
+        payload = json.dumps({
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.7,
+        }).encode()
+        req = urllib.request.Request(url, data=payload, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        })
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+            return data["choices"][0]["message"]["content"]
 
     def _openrouter(self, messages: List[Dict]) -> str:
         if not self.api_key:
@@ -563,6 +593,23 @@ def _generate_track_from_plan(
 
         # Use track-level inference steps or fall back to function default
         steps = track_data.get("inference_steps", inference_steps)
+        # Clamp to the loaded model's effective max. The Studio UI caps the
+        # slider at 20 for turbo / 200 for base; the DJ path bypasses that
+        # slider, so the LLM has historically been free to request values
+        # (e.g. 27) that the model technically runs but that the Studio UI
+        # then rejects when loading the resulting sidecar. Clamp here so
+        # both UIs agree on what's valid and so reproduction round-trips.
+        if dit_handler is not None and getattr(dit_handler, "model", None) is not None:
+            try:
+                _max_steps = 20 if dit_handler.is_turbo_model() else 200
+                if isinstance(steps, (int, float)) and steps > _max_steps:
+                    logger.warning(
+                        f"DJ requested {steps} inference steps; clamping to "
+                        f"{_max_steps} (current model's effective max)."
+                    )
+                    steps = _max_steps
+            except Exception:
+                pass  # Best-effort; if handler isn't ready, run with original value.
         guidance = track_data.get("guidance_scale", None)
 
         # Resolve src_audio — map "USE_UPLOADED" to the actual file
@@ -669,21 +716,27 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
     Returns:
         gr.Blocks instance ready to be mounted at /ai-dj.
     """
-    # Auto-load API key from environment
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    default_provider = "openrouter"
-    default_model = "anthropic/claude-opus-4-6:online"
+    # Auto-load API key from environment.
+    # Preference order: OpenAI → OpenRouter → Gemini → local Ollama.
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    default_provider = "openai"
+    default_model = "gpt-4o-mini"
 
-    # If no OpenRouter key, try Gemini, then fall back to Ollama
+    if not api_key:
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if api_key:
+            default_provider = "openrouter"
+            default_model = "anthropic/claude-opus-4-6:online"
+
     if not api_key:
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         if gemini_key:
             api_key = gemini_key
             default_provider = "gemini"
-            default_model = "gemini-2.0-flash"
+            default_model = "gemini-2.5-flash-lite"
         else:
             default_provider = "ollama"
-            default_model = "llama3.1:8b"
+            default_model = "qwen3:8b"
 
     # Resolve handlers from init_params if not passed directly
     if dit_handler is None and init_params and "dit_handler" in init_params:
@@ -701,6 +754,7 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
         "ollama": PROVIDER_MODELS[LLMProvider.OLLAMA],
         "openrouter": PROVIDER_MODELS[LLMProvider.OPENROUTER],
         "gemini": PROVIDER_MODELS[LLMProvider.GEMINI],
+        "openai": PROVIDER_MODELS[LLMProvider.OPENAI],
     }
 
     # --- Build the UI ---------------------------------------------------------
@@ -865,7 +919,7 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                 gr.Markdown("### ⚙️ Settings")
 
                 provider_dd = gr.Dropdown(
-                    choices=["openrouter", "gemini", "ollama"],
+                    choices=["openai", "openrouter", "gemini", "ollama"],
                     value=default_provider,
                     label="LLM Provider",
                     interactive=True,
@@ -900,7 +954,7 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                 )
                 instrumental_toggle = gr.Checkbox(
                     label="Instrumental only",
-                    value=False,
+                    value=True,
                     interactive=True,
                 )
                 batch_slider = gr.Slider(
@@ -1182,8 +1236,10 @@ def create_dj_chat(dit_handler=None, llm_handler=None, init_params=None) -> gr.B
                     )
                 yield chat_history
 
-            # Clear the pending plan
-            _shared["pending_plan"] = None
+            # Keep the pending plan around so the user can hit Generate again
+            # on the same locked-in setlist (useful for reproducibility tests).
+            # The plan is overwritten when the LLM emits a new JSON block on
+            # the next lock-in, and cleared explicitly by the Clear button.
 
             chat_history = chat_history + [
                 gr.ChatMessage(

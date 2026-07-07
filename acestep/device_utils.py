@@ -3,7 +3,19 @@ Device Utilities Module
 Shared utility functions for cross-backend device management (CUDA, MPS, XPU, CPU).
 """
 
+import random as _py_random
+
+import numpy as _np
 import torch
+
+# MLX is only present on Apple Silicon; import lazily and tolerate absence so
+# this module remains usable on CUDA/CPU systems.
+try:
+    import mlx.core as _mx  # type: ignore[import-not-found]
+    _MLX_AVAILABLE = True
+except Exception:  # pragma: no cover - mlx not installed on non-Apple systems
+    _mx = None
+    _MLX_AVAILABLE = False
 
 
 def get_device_type():
@@ -61,10 +73,28 @@ def max_memory_allocated(device=None):
 
 
 def manual_seed(seed):
-    """Set seed for all backends."""
+    """Set seed for every PRNG that ACE-Step touches.
+
+    On Apple Silicon the LM may run through MLX, which has its own PRNG
+    independent of torch's. Seeding torch alone leaves MLX's sampling
+    non-deterministic, so generations that route through the MLX-LM backend
+    cannot be reproduced from a saved seed. We also seed numpy and Python's
+    random module — they are not heavily used in the hot path but seeding
+    them is cheap and removes another source of non-determinism.
+    """
+    seed = int(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    if _MLX_AVAILABLE:
+        try:
+            _mx.random.seed(seed)
+        except Exception:
+            # MLX present but seed call failed — log nothing here to avoid
+            # noise; the worst case is reduced reproducibility, not breakage.
+            pass
+    _np.random.seed(seed % (2**32))  # numpy requires uint32-range seed
+    _py_random.seed(seed)
 
 
 def supports_bfloat16(device):

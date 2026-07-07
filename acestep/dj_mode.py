@@ -32,6 +32,7 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     OPENROUTER = "openrouter"
     GEMINI = "gemini"
+    OPENAI = "openai"
 
 
 class TransitionStyle(str, Enum):
@@ -54,7 +55,8 @@ class MoodProgression(str, Enum):
 DEFAULT_MODELS = {
     LLMProvider.OLLAMA: "llama3.1:8b",
     LLMProvider.OPENROUTER: "anthropic/claude-opus-4-6:online",
-    LLMProvider.GEMINI: "gemini-2.0-flash",
+    LLMProvider.GEMINI: "gemini-2.5-flash-lite",
+    LLMProvider.OPENAI: "gpt-4o-mini",
 }
 
 # Curated model list per provider (shown in UI dropdown)
@@ -77,9 +79,16 @@ PROVIDER_MODELS = {
         "deepseek/deepseek-chat-v3-0324",
     ],
     LLMProvider.GEMINI: [
-        "gemini-2.0-flash",
-        "gemini-2.5-pro-preview-06-05",
-        "gemini-2.5-flash-preview-05-20",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+    ],
+    LLMProvider.OPENAI: [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "gpt-4.1-mini",
+        "gpt-4.1",
+        "o4-mini",
     ],
 }
 

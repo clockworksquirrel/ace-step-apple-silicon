@@ -345,7 +345,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     
     # ========== Load/Save Metadata ==========
     generation_section["load_file"].upload(
-        fn=lambda file_obj: gen_h.load_metadata(file_obj, llm_handler),
+        fn=lambda file_obj: gen_h.load_metadata(file_obj, llm_handler, dit_handler),
         inputs=[generation_section["load_file"]],
         outputs=[
             generation_section["task_type"],
