@@ -160,6 +160,9 @@ jobs:
               { jq -r .pr_body "$RUNNER_TEMP/decision.json"; echo; echo "Resolves #${ISSUE_NUMBER}"; echo; echo "_Drafted automatically by Claude from the issue ([run](${RUN_URL})). Not merged: the maintainer reviews it._"; } > "$RUNNER_TEMP/pr.md"
               if pr_url=$(gh pr create --base "$DEFAULT_BRANCH" --head "$br" --title "$(jq -r .pr_title "$RUNNER_TEMP/decision.json")" --body-file "$RUNNER_TEMP/pr.md"); then
                 echo "PR: $pr_url"
+                # Bot-authored PRs are not auto-reviewed by CodeRabbit/Greptile, so ask them explicitly.
+                gh pr comment "$pr_url" --body "@coderabbitai review" || true
+                gh pr comment "$pr_url" --body "@greptileai review" || true
               else
                 pr_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${DEFAULT_BRANCH}...${br}?expand=1"
                 echo "::warning::could not open the PR automatically; branch pushed: $pr_url"
